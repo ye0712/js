@@ -93,8 +93,9 @@ const filterConfig = {
   "top_250":[{ "key": "slug", "name": "榜单", "init": "movie_top250", "value":[{ "n": "豆瓣电影Top250", "v": "movie_top250" }] }]
 };
 
-// ===================== 🌟 移植：整页级长效缓存 =====================
+// ===================== 🌟 整页级长效缓存 =====================
 const pageCache = new Map();
+const homeListCache = { data: null, time: 0 };
 
 // 列表接口有些条目只带年份，缓存详情补全结果，避免重复请求
 const subjectCache = new Map();
@@ -169,7 +170,7 @@ const fetchCategoryLive = async ({ id, page, filters }) => {
   };
 
   try {
-    // 1) 动漫榜单：豆瓣公开 subject_collection 的动漫 slug 不稳定，这里用电影/剧集推荐接口按"动画"聚合，避免空榜
+    // 1) 动漫榜单
     if (id === 'hot_anime') {
       const animeSortMap = {
         all: 'U',
@@ -281,7 +282,7 @@ const fetchCategoryLive = async ({ id, page, filters }) => {
       offset += count;
     }
 
-    // 先把最终要展示的 40 条筛出来，再补详情；避免 hot/all 榜单合并出上百条后给不可见条目也拉详情
+    // 先把最终要展示的 40 条筛出来，再补详情
     const pickedItems = [];
     const pickedSeen = new Set();
     for (const it of items) {
@@ -294,14 +295,12 @@ const fetchCategoryLive = async ({ id, page, filters }) => {
     items = pickedItems;
 
     // 各分类列表接口经常只给 year，完整首映/首播日期需要详情接口补全
-    // 只要没有完整到"月/日"的日期，就尝试拉一次详情；详情失败时仍回退显示年份
     const hasFullPubdate = (it) => {
       const sub = it.subject || {};
       const raw = sub.pubdate || sub.release_date || it.pubdate || it.release_date || '';
       return /\d{4}[-/.年]\d{1,2}/.test(String(raw));
     };
 
-    // 各分类都使用同一套补齐逻辑：只要没有完整到"月/日"的日期，就拉详情接口补全
     const needYearDetail = items.filter((it) => !hasFullPubdate(it));
 
     for (let i = 0; i < needYearDetail.length; i += 40) {
@@ -374,9 +373,7 @@ const fetchCategoryLive = async ({ id, page, filters }) => {
         }
       }
       
-
-
-      // 构建 remarks：评分 + 首播时间（有评分："评分: 8.5分 · 2024-05-20"；无评分："暂无评分 · 2024-05-20"）
+      // 构建 remarks：评分 + 首播时间
       let remarks = '暂无评分';
       if (ratingObj?.value) {
         remarks = `评分: ${ratingObj.value.toFixed(1)}分`;
@@ -417,11 +414,11 @@ const fetchCategoryLive = async ({ id, page, filters }) => {
   }
 };
 
-// ===================== 🌟 移植：读写分离缓存包装器 =====================
+// ===================== 读写分离缓存包装器 =====================
 const _category = async ({ id, page, filters }) => {
   const cacheKey = getPageCacheKey(id, page, filters);
   
-  // 1. 命中缓存，瞬间返回 (0毫秒)
+  // 1. 命中缓存，瞬间返回
   const cachedPage = pageCache.get(cacheKey);
   if (cachedPage) {
     cachedPage.lastAccess = Date.now();
@@ -435,30 +432,30 @@ const _category = async ({ id, page, filters }) => {
   return liveData;
 };
 
-// ===================== 🌟 移植：后台静默刷新任务 =====================
+// ===================== 后台静默刷新任务 =====================
 const backgroundRefreshTask = async () => {
   log.info("🕒 开始执行[豆瓣纯净目录] 后台全量静默预热任务...");
   let refreshCount = 0;
   const now = Date.now();
 
-  // 1. 自动清理深层闲置页面 (超过24小时未访问的非核心页面清理掉)
+  // 1. 自动清理深层闲置页面
   for (const[key, cachedData] of pageCache.entries()) {
     if (now - cachedData.lastAccess > 24 * 60 * 60 * 1000) {
       pageCache.delete(key);
     }
   }
 
-  // 精准预热要求榜单的第 1 页 (前40个资源) 默认情况
+  // 精准预热要求榜单的第 1 页
   const coreTargets =[
-    { id: "movie", filters: { sort: "U" } },      // 豆瓣电影：全部、近期热度
-    { id: "tv", filters: { sort: "U" } },         // 豆瓣剧集：全部、近期热度
-    { id: "show", filters: { sort: "U" } },       // 豆瓣综艺：全部、近期热度
-    { id: "anime", filters: { sort: "U" } },      // 豆瓣动漫：全部、近期热度
-    { id: "hot_movie", filters: { slug: "all" } },// 电影榜单：全部榜单
-    { id: "hot_tv", filters: { slug: "all" } },   // 剧集榜单：全部榜单
-    { id: "hot_show", filters: { slug: "all" } }, // 综艺榜单：全部榜单
-    { id: "hot_anime", filters: { slug: "anime_recent" } },// 最新动漫
-    { id: "top_250", filters: { slug: "movie_top250" } }  // Top250
+    { id: "movie", filters: { sort: "U" } },
+    { id: "tv", filters: { sort: "U" } },
+    { id: "show", filters: { sort: "U" } },
+    { id: "anime", filters: { sort: "U" } },
+    { id: "hot_movie", filters: { slug: "all" } },
+    { id: "hot_tv", filters: { slug: "all" } },
+    { id: "hot_show", filters: { slug: "all" } },
+    { id: "hot_anime", filters: { slug: "anime_recent" } },
+    { id: "top_250", filters: { slug: "movie_top250" } }
   ];
 
   for (const target of coreTargets) {
@@ -468,7 +465,7 @@ const backgroundRefreshTask = async () => {
       const freshData = await fetchCategoryLive({ id: target.id, page, filters: target.filters });
       pageCache.set(cacheKey, { data: freshData, lastAccess: Date.now() });
       refreshCount++;
-      // 暂停 2 秒，防止把豆瓣接口打挂
+      // 暂停 2 秒
       await new Promise(r => setTimeout(r, 2000)); 
     } catch (e) {
       log.warn(`预热失败 [${target.id}]: ${e.message}`);
@@ -484,55 +481,98 @@ const decodeExt = (ext) => {
   catch (e) { try { return JSON.parse(ext); } catch (e2) { return {}; } }
 };
 
-// ✅ 修复：简化 buildHomeList，直接返回多个榜单的混合结果
+// ✅ 激进优化：buildHomeList 采用缓存 + 异步预热
 const buildHomeList = async () => {
   try {
+    const now = Date.now();
+    
+    // 1. 检查缓存（12小时过期）
+    if (homeListCache.data && now - homeListCache.time < 12 * 60 * 60 * 1000) {
+      log.info('buildHomeList: 返回缓存的首页数据');
+      return homeListCache.data;
+    }
+
     log.info('buildHomeList: 开始收集首页数据...');
     
-    // 直接加载三个榜单的第1页
-    const [movieData, tvData, showData] = await Promise.all([
-      _category({ id: 'hot_movie', page: 1, filters: { slug: 'all' } }),
-      _category({ id: 'hot_tv', page: 1, filters: { slug: 'all' } }),
-      _category({ id: 'hot_show', page: 1, filters: { slug: 'all' } })
-    ]);
+    // 2. 直接从缓存的榜单提取数据（无需重新请求）
+    const movieCacheKey = getPageCacheKey('hot_movie', 1, { slug: 'all' });
+    const tvCacheKey = getPageCacheKey('hot_tv', 1, { slug: 'all' });
+    const showCacheKey = getPageCacheKey('hot_show', 1, { slug: 'all' });
+    
+    const movieData = pageCache.get(movieCacheKey)?.data;
+    const tvData = pageCache.get(tvCacheKey)?.data;
+    const showData = pageCache.get(showCacheKey)?.data;
 
+    // 3. 如果缓存有数据，直接使用；否则发起快速请求
+    let movieList = movieData?.list || [];
+    let tvList = tvData?.list || [];
+    let showList = showData?.list || [];
+
+    // 如果缓存为空，发起并行请求（带超时保护）
+    if (!movieList.length || !tvList.length || !showList.length) {
+      const timeout = (ms, id) => {
+        return Promise.race([
+          _category({ id, page: 1, filters: { slug: id === 'hot_show' ? 'all' : 'all' } }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error(`${id} timeout`)), ms))
+        ]).catch(e => {
+          log.warn(`buildHomeList: ${id} 请求失败或超时，使用空数组`);
+          return { list: [] };
+        });
+      };
+
+      const [mdata, tdata, sdata] = await Promise.all([
+        !movieList.length ? timeout(5000, 'hot_movie') : Promise.resolve({ list: movieList }),
+        !tvList.length ? timeout(5000, 'hot_tv') : Promise.resolve({ list: tvList }),
+        !showList.length ? timeout(5000, 'hot_show') : Promise.resolve({ list: showList })
+      ]);
+
+      movieList = mdata?.list || [];
+      tvList = tdata?.list || [];
+      showList = sdata?.list || [];
+    }
+
+    // 4. 混合：按 2电影:2剧集:1综艺 的比例
     const merged = [];
     const seen = new Set();
-
-    // 按 2电影:2剧集:1综艺 的比例混合
+    
     const allItems = [
-      ...(movieData?.list || []).slice(0, 2),
-      ...(tvData?.list || []).slice(0, 2),
-      ...(showData?.list || []).slice(0, 1)
+      ...movieList.slice(0, 2),
+      ...tvList.slice(0, 2),
+      ...showList.slice(0, 1)
     ];
 
     for (const item of allItems) {
-      if (!seen.has(item.vod_id)) {
+      if (item?.vod_id && !seen.has(item.vod_id)) {
         seen.add(item.vod_id);
         merged.push(item);
       }
     }
 
-    // 如果不足5条，继续补充
-    if (merged.length < 5) {
+    // 5. 如果不足，补充
+    if (merged.length < 10) {
       const remaining = [
-        ...(movieData?.list || []).slice(2),
-        ...(tvData?.list || []).slice(2),
-        ...(showData?.list || []).slice(1)
+        ...movieList.slice(2),
+        ...tvList.slice(2),
+        ...showList.slice(1)
       ];
       for (const item of remaining) {
-        if (!seen.has(item.vod_id) && merged.length < 40) {
+        if (item?.vod_id && !seen.has(item.vod_id) && merged.length < 40) {
           seen.add(item.vod_id);
           merged.push(item);
         }
       }
     }
 
-    log.info(`✅ buildHomeList: 成功收集 ${merged.length} 条首页数据`);
+    // 6. 缓存结果
+    homeListCache.data = merged;
+    homeListCache.time = now;
+
+    log.info(`✅ buildHomeList: 成功返回 ${merged.length} 条首页数据`);
     return merged;
   } catch (err) {
     log.error(`buildHomeList异常: ${err.message}`);
-    return [];
+    // 降级：返回空列表，而不是抛出错误
+    return homeListCache.data || [];
   }
 };
 
