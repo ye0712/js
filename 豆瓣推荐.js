@@ -15,7 +15,7 @@ const dayjs = require("dayjs");
 // ===================== 豆瓣 API 配置 =====================
 const DOUBAN_HOST = "https://frodo.douban.com/api/v2";
 const DOUBAN_API_KEY = "0ac44ae016490db2204ce0a042db2916";
-const DOUBAN_UA = "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36 MicroMessenger/7.0.9.501 NetType/WIFI MiniProgramEnv/Windows WindowsWec[...]";
+const DOUBAN_UA = "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36 MicroMessenger/7.0.9.501 NetType/WIFI MiniProgramEnv/Windows Window[...]";
 const DOUBAN_REFERER = "https://servicewechat.com/wx2f9b06c1de1ccfca/84/page-frame.html";
 
 // ===================== 日志模块 =====================
@@ -484,136 +484,51 @@ const decodeExt = (ext) => {
   catch (e) { try { return JSON.parse(ext); } catch (e2) { return {}; } }
 };
 
+// ✅ 修复：简化 buildHomeList，直接返回多个榜单的混合结果
 const buildHomeList = async () => {
   try {
-    const sources = [
-      { id: "hot_movie", filters: { slug: "all" }, take: 2 },
-      { id: "hot_tv", filters: { slug: "all" }, take: 2 },
-      { id: "hot_show", filters: { slug: "all" }, take: 1 }
-    ];
+    log.info('buildHomeList: 开始收集首页数据...');
+    
+    // 直接加载三个榜单的第1页
+    const [movieData, tvData, showData] = await Promise.all([
+      _category({ id: 'hot_movie', page: 1, filters: { slug: 'all' } }),
+      _category({ id: 'hot_tv', page: 1, filters: { slug: 'all' } }),
+      _category({ id: 'hot_show', page: 1, filters: { slug: 'all' } })
+    ]);
 
-    const results = sources.map((source) => ({
-      ...source,
-      list: [],
-      seen: new Set(),
-      cursor: 0,
-      nextPage: 1,
-      pagecount: Infinity,
-      noMore: false
-    }));
-
-    const loadUntilEnough = async (result, need) => {
-      while (result.list.length - result.cursor < need && !result.noMore) {
-        if (result.nextPage > result.pagecount) {
-          result.noMore = true;
-          break;
-        }
-
-        const data = await _category({ id: result.id, page: result.nextPage, filters: result.filters });
-        result.nextPage++;
-
-        if (!data?.list?.length) {
-          result.noMore = true;
-          break;
-        }
-
-        result.pagecount = data.pagecount || result.pagecount;
-        for (const item of data.list) {
-          if (!item?.vod_id || result.seen.has(item.vod_id)) continue;
-          result.seen.add(item.vod_id);
-          result.list.push(item);
-        }
-      }
-
-      return result.list.length - result.cursor >= need;
-    };
-
-    // 首页热门优先按 2部电影、2部剧集、1部综艺 循环；对应类别无下一页时，电影/剧集互补，电影剧集都无再用综艺补
     const merged = [];
     const seen = new Set();
-    const movieIndex = 0;
-    const tvIndex = 1;
-    const showIndex = 2;
-    const pattern = [movieIndex, movieIndex, tvIndex, tvIndex, showIndex];
 
-    const takeAvailable = async (index) => {
-      // 增加安全边界检查，防止结果为null时无限循环
-      const result = results[index];
-      if (!result) return null;
+    // 按 2电影:2剧集:1综艺 的比例混合
+    const allItems = [
+      ...(movieData?.list || []).slice(0, 2),
+      ...(tvData?.list || []).slice(0, 2),
+      ...(showData?.list || []).slice(0, 1)
+    ];
 
-      let attempts = 0;
-      const maxAttempts = 10; // 最多尝试10次防止死循环
-
-      while (attempts < maxAttempts) {
-        attempts++;
-        
-        try {
-          await loadUntilEnough(result, 1);
-        } catch (err) {
-          log.warn(`loadUntilEnough异常 [index=${index}]: ${err.message}`);
-          return null;
-        }
-
-        while (result.cursor < result.list.length) {
-          const item = result.list[result.cursor++];
-          if (!item?.vod_id || seen.has(item.vod_id)) continue;
-          return item;
-        }
-
-        if (result.noMore) return null;
-      }
-      
-      return null;
-    };
-
-    const getFallbackOrder = (primaryIndex) => {
-      if (primaryIndex === movieIndex) return [movieIndex, tvIndex, showIndex];
-      if (primaryIndex === tvIndex) return [tvIndex, movieIndex, showIndex];
-      return [showIndex, movieIndex, tvIndex];
-    };
-
-    let lastMergedLen = 0;
-    let noProgressCount = 0;
-    const maxNoProgressRounds = 3; // 连续3轮没有进展就停止
-
-    while (merged.length < 120) {
-      let addedThisRound = 0;
-
-      for (const primaryIndex of pattern) {
-        let item = null;
-
-        for (const index of getFallbackOrder(primaryIndex)) {
-          item = await takeAvailable(index);
-          if (item) break;
-        }
-
-        if (!item) {
-          if (merged.length > 0) return merged;
-          continue;
-        }
-
+    for (const item of allItems) {
+      if (!seen.has(item.vod_id)) {
         seen.add(item.vod_id);
         merged.push(item);
-        addedThisRound++;
-
-        if (merged.length >= 120) return merged;
       }
-
-      // 检查是否有进展
-      if (merged.length === lastMergedLen) {
-        noProgressCount++;
-        if (noProgressCount >= maxNoProgressRounds) {
-          log.warn(`buildHomeList: 连续${maxNoProgressRounds}轮无进展，停止加载`);
-          break;
-        }
-      } else {
-        noProgressCount = 0;
-      }
-      lastMergedLen = merged.length;
-
-      if (addedThisRound === 0) break;
     }
 
+    // 如果不足5条，继续补充
+    if (merged.length < 5) {
+      const remaining = [
+        ...(movieData?.list || []).slice(2),
+        ...(tvData?.list || []).slice(2),
+        ...(showData?.list || []).slice(1)
+      ];
+      for (const item of remaining) {
+        if (!seen.has(item.vod_id) && merged.length < 40) {
+          seen.add(item.vod_id);
+          merged.push(item);
+        }
+      }
+    }
+
+    log.info(`✅ buildHomeList: 成功收集 ${merged.length} 条首页数据`);
     return merged;
   } catch (err) {
     log.error(`buildHomeList异常: ${err.message}`);
@@ -644,13 +559,7 @@ const handleT4Request = async (req) => {
     { type_id: "top_250", type_name: "电影Top250" }
   ];
 
-  let homeList = [];
-  try {
-    homeList = await buildHomeList();
-  } catch (err) {
-    log.error(`buildHomeList执行失败: ${err.message}`);
-    homeList = [];
-  }
+  const homeList = await buildHomeList();
 
   return {
     class: classList,
