@@ -15,7 +15,7 @@ const dayjs = require("dayjs");
 // ===================== 豆瓣 API 配置 =====================
 const DOUBAN_HOST = "https://frodo.douban.com/api/v2";
 const DOUBAN_API_KEY = "0ac44ae016490db2204ce0a042db2916";
-const DOUBAN_UA = "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36 MicroMessenger/7.0.9.501 NetType/WIFI MiniProgramEnv/Windows WindowsWechat";
+const DOUBAN_UA = "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36 MicroMessenger/7.0.9.501 NetType/WIFI MiniProgramEnv/Windows WindowsWec[...]";
 const DOUBAN_REFERER = "https://servicewechat.com/wx2f9b06c1de1ccfca/84/page-frame.html";
 
 // ===================== 日志模块 =====================
@@ -62,27 +62,27 @@ const requestDouban = async (url, extraHeaders = {}) => {
 // ===================== 定制的豆瓣多级分类 =====================
 const filterConfig = {
   "movie":[
-    { "key": "类型", "name": "类型", "init": "", "value":[{ "n": "全部类型", "v": "" }, { "n": "喜剧", "v": "喜剧" }, { "n": "爱情", "v": "爱情" }, { "n": "动作", "v": "动作" }, { "n": "科幻", "v": "科幻" }, { "n": "动画", "v": "动画" }, { "n": "悬疑", "v": "悬疑" }, { "n": "犯罪", "v": "犯罪" }, { "n": "惊悚", "v": "惊悚" }, { "n": "恐怖", "v": "恐怖" }, { "n": "纪录片", "v": "纪录片" }] },
-    { "key": "地区", "name": "地区", "init": "", "value":[{ "n": "全部地区", "v": "" }, { "n": "华语", "v": "华语" }, { "n": "欧美", "v": "欧美" }, { "n": "韩国", "v": "韩国" }, { "n": "日本", "v": "日本" }, { "n": "中国大陆", "v": "中国大陆" }, { "n": "美国", "v": "美国" }, { "n": "中国香港", "v": "中国香港" }] },
-    { "key": "年代", "name": "年代", "init": "", "value":[{ "n": "全部年代", "v": "" }, { "n": "2026", "v": "2026" }, { "n": "2025", "v": "2025" }, { "n": "2024", "v": "2024" }, { "n": "2023", "v": "2023" }, { "n": "2022", "v": "2022" }, { "n": "2021", "v": "2021" }, { "n": "2020", "v": "2020" }, { "n": "2010年代", "v": "2010年代" }, { "n": "2000年代", "v": "2000年代" }] },
+    { "key": "类型", "name": "类型", "init": "", "value":[{ "n": "全部类型", "v": "" }, { "n": "喜剧", "v": "喜剧" }, { "n": "爱情", "v": "爱情" }, { "n": "动作", "v": "动作" }, { "n": "恐怖", "v": "恐怖" }, { "n": "犯罪", "v": "犯罪" }, { "n": "悬疑", "v": "悬疑" }, { "n": "冒险", "v": "冒险" }, { "n": "科幻", "v": "科幻" }, { "n": "奇幻", "v": "奇幻" }, { "n": "动画", "v": "动画" }, { "n": "家庭", "v": "家庭" }, { "n": "音乐", "v": "音乐" }, { "n": "战争", "v": "战争" }, { "n": "历史", "v": "历史" }, { "n": "传记", "v": "传记" }, { "n": "短剧", "v": "短剧" }] },
+    { "key": "地区", "name": "地区", "init": "", "value":[{ "n": "全部地区", "v": "" }, { "n": "华语", "v": "华语" }, { "n": "欧美", "v": "欧美" }, { "n": "韩国", "v": "韩国" }, { "n": "日本", "v": "日本" }, { "n": "香港", "v": "香港" }, { "n": "台湾", "v": "台湾" }, { "n": "泰国", "v": "泰国" }, { "n": "印度", "v": "印度" }, { "n": "其他", "v": "其他" }] },
+    { "key": "年代", "name": "年代", "init": "", "value":[{ "n": "全部年代", "v": "" }, { "n": "2026", "v": "2026" }, { "n": "2025", "v": "2025" }, { "n": "2024", "v": "2024" }, { "n": "2023", "v": "2023" }, { "n": "2022", "v": "2022" }, { "n": "2021", "v": "2021" }, { "n": "2020", "v": "2020" }, { "n": "2010s", "v": "2010s" }, { "n": "2000s", "v": "2000s" }, { "n": "90s", "v": "90s" }, { "n": "80s", "v": "80s" }, { "n": "70s", "v": "70s" }, { "n": "60s", "v": "60s" }] },
     { "key": "sort", "name": "排序", "init": "U", "value":[{ "n": "近期热度", "v": "U" }, { "n": "综合排序", "v": "T" }, { "n": "首映时间", "v": "R" }, { "n": "高分优先", "v": "S" }] }
   ],
   "tv":[
-    { "key": "形式", "name": "形式", "init": "", "value":[{ "n": "全部类型", "v": "" }, { "n": "喜剧", "v": "喜剧" }, { "n": "爱情", "v": "爱情" }, { "n": "悬疑", "v": "悬疑" }, { "n": "武侠", "v": "武侠" }, { "n": "古装", "v": "古装" }, { "n": "历史", "v": "历史" }, { "n": "剧情", "v": "剧情" }] },
-    { "key": "地区", "name": "地区", "init": "", "value":[{ "n": "全部地区", "v": "" }, { "n": "华语", "v": "华语" }, { "n": "欧美", "v": "欧美" }, { "n": "韩国", "v": "韩国" }, { "n": "日本", "v": "日本" }, { "n": "中国大陆", "v": "中国大陆" }, { "n": "美国", "v": "美国" }, { "n": "英国", "v": "英国" }, { "n": "中国香港", "v": "中国香港" }] },
-    { "key": "年代", "name": "年代", "init": "", "value":[{ "n": "全部年代", "v": "" }, { "n": "2026", "v": "2026" }, { "n": "2025", "v": "2025" }, { "n": "2024", "v": "2024" }, { "n": "2023", "v": "2023" }, { "n": "2022", "v": "2022" }, { "n": "2021", "v": "2021" }, { "n": "2020", "v": "2020" }, { "n": "2010年代", "v": "2010年代" }] },
-    { "key": "平台", "name": "平台", "init": "", "value":[{ "n": "全部平台", "v": "" }, { "n": "腾讯视频", "v": "腾讯视频" }, { "n": "爱奇艺", "v": "爱奇艺" }, { "n": "优酷", "v": "优酷" }, { "n": "Netflix", "v": "Netflix" }, { "n": "HBO", "v": "HBO" }] },
+    { "key": "形式", "name": "形式", "init": "", "value":[{ "n": "全部类型", "v": "" }, { "n": "喜剧", "v": "喜剧" }, { "n": "爱情", "v": "爱情" }, { "n": "悬疑", "v": "悬疑" }, { "n": "犯罪", "v": "犯罪" }, { "n": "动作", "v": "动作" }, { "n": "战争", "v": "战争" }, { "n": "历史", "v": "历史" }, { "n": "冒险", "v": "冒险" }, { "n": "科幻", "v": "科幻" }, { "n": "奇幻", "v": "奇幻" }, { "n": "家庭", "v": "家庭" }, { "n": "传记", "v": "传记" }] },
+    { "key": "地区", "name": "地区", "init": "", "value":[{ "n": "全部地区", "v": "" }, { "n": "华语", "v": "华语" }, { "n": "欧美", "v": "欧美" }, { "n": "韩国", "v": "韩国" }, { "n": "日本", "v": "日本" }, { "n": "香港", "v": "香港" }, { "n": "台湾", "v": "台湾" }, { "n": "泰国", "v": "泰国" }, { "n": "印度", "v": "印度" }] },
+    { "key": "年代", "name": "年代", "init": "", "value":[{ "n": "全部年代", "v": "" }, { "n": "2026", "v": "2026" }, { "n": "2025", "v": "2025" }, { "n": "2024", "v": "2024" }, { "n": "2023", "v": "2023" }, { "n": "2022", "v": "2022" }, { "n": "2021", "v": "2021" }, { "n": "2020", "v": "2020" }, { "n": "2010s", "v": "2010s" }, { "n": "2000s", "v": "2000s" }, { "n": "90s", "v": "90s" }, { "n": "80s", "v": "80s" }] },
+    { "key": "平台", "name": "平台", "init": "", "value":[{ "n": "全部平台", "v": "" }, { "n": "腾讯视频", "v": "腾讯视频" }, { "n": "爱奇艺", "v": "爱奇艺" }, { "n": "优酷", "v": "优酷" }, { "n": "芒果TV", "v": "芒果TV" }, { "n": "B站", "v": "B站" }, { "n": "Netflix", "v": "Netflix" }] },
     { "key": "sort", "name": "排序", "init": "U", "value":[{ "n": "近期热度", "v": "U" }, { "n": "综合排序", "v": "T" }, { "n": "首播时间", "v": "R" }, { "n": "高分优先", "v": "S" }] }
   ],
   "show":[
-    { "key": "类型", "name": "类型", "init": "", "value":[{ "n": "全部类型", "v": "" }, { "n": "真人秀", "v": "真人秀" }, { "n": "脱口秀", "v": "脱口秀" }, { "n": "音乐", "v": "音乐" }, { "n": "喜剧", "v": "喜剧" }, { "n": "纪实", "v": "纪实" }] },
-    { "key": "地区", "name": "地区", "init": "", "value":[{ "n": "全部地区", "v": "" }, { "n": "中国大陆", "v": "中国大陆" }, { "n": "韩国", "v": "韩国" }, { "n": "港台", "v": "港台" }, { "n": "欧美", "v": "欧美" }] },
+    { "key": "类型", "name": "类型", "init": "", "value":[{ "n": "全部类型", "v": "" }, { "n": "真人秀", "v": "真人秀" }, { "n": "脱口秀", "v": "脱口秀" }, { "n": "音乐", "v": "音乐" }, { "n": "美食", "v": "美食" }, { "n": "旅游", "v": "旅游" }, { "n": "体育", "v": "体育" }, { "n": "竞技", "v": "竞技" }, { "n": "相亲", "v": "相亲" }, { "n": "选秀", "v": "选秀" }] },
+    { "key": "地区", "name": "地区", "init": "", "value":[{ "n": "全部地区", "v": "" }, { "n": "中国大陆", "v": "中国大陆" }, { "n": "韩国", "v": "韩国" }, { "n": "港台", "v": "港台" }, { "n": "欧美", "v": "欧美" }, { "n": "日本", "v": "日本" }] },
     { "key": "年代", "name": "年代", "init": "", "value":[{ "n": "全部年代", "v": "" }, { "n": "2026", "v": "2026" }, { "n": "2025", "v": "2025" }, { "n": "2024", "v": "2024" }, { "n": "2023", "v": "2023" }, { "n": "2022", "v": "2022" }, { "n": "2021", "v": "2021" }, { "n": "2020", "v": "2020" }] },
     { "key": "sort", "name": "排序", "init": "U", "value":[{ "n": "近期热度", "v": "U" }, { "n": "综合排序", "v": "T" }, { "n": "首播时间", "v": "R" }, { "n": "高分优先", "v": "S" }] }
   ],
   "anime":[
-    { "key": "类型", "name": "类型", "init": "", "value":[{ "n": "全部类型", "v": "" }, { "n": "动画", "v": "动画" }, { "n": "日本动画", "v": "日本动画" }, { "n": "国产动画", "v": "国产动画" }, { "n": "欧美动画", "v": "欧美动画" }, { "n": "剧场版", "v": "剧场版" }, { "n": "番剧", "v": "番剧" }] },
-    { "key": "地区", "name": "地区", "init": "", "value":[{ "n": "全部地区", "v": "" }, { "n": "日本", "v": "日本" }, { "n": "中国大陆", "v": "中国大陆" }, { "n": "美国", "v": "美国" }, { "n": "欧美", "v": "欧美" }] },
+    { "key": "类型", "name": "类型", "init": "", "value":[{ "n": "全部类型", "v": "" }, { "n": "动画", "v": "动画" }, { "n": "日本动画", "v": "日本动画" }, { "n": "国产动画", "v": "国产动画" }, { "n": "欧美动画", "v": "欧美动画" }] },
+    { "key": "地区", "name": "地区", "init": "", "value":[{ "n": "全部地区", "v": "" }, { "n": "日本", "v": "日本" }, { "n": "中国大陆", "v": "中国大陆" }, { "n": "美国", "v": "美国" }, { "n": "其他", "v": "其他" }] },
     { "key": "年代", "name": "年代", "init": "", "value":[{ "n": "全部年代", "v": "" }, { "n": "2026", "v": "2026" }, { "n": "2025", "v": "2025" }, { "n": "2024", "v": "2024" }, { "n": "2023", "v": "2023" }, { "n": "2022", "v": "2022" }, { "n": "2021", "v": "2021" }, { "n": "2020", "v": "2020" }] },
     { "key": "sort", "name": "排序", "init": "U", "value":[{ "n": "近期热度", "v": "U" }, { "n": "综合排序", "v": "T" }, { "n": "首播时间", "v": "R" }, { "n": "高分优先", "v": "S" }] }
   ],
@@ -169,7 +169,7 @@ const fetchCategoryLive = async ({ id, page, filters }) => {
   };
 
   try {
-    // 1) 动漫榜单：豆瓣公开 subject_collection 的动漫 slug 不稳定，这里用电影/剧集推荐接口按“动画”聚合，避免空榜
+    // 1) 动漫榜单：豆瓣公开 subject_collection 的动漫 slug 不稳定，这里用电影/剧集推荐接口按"动画"聚合，避免空榜
     if (id === 'hot_anime') {
       const animeSortMap = {
         all: 'U',
@@ -294,14 +294,14 @@ const fetchCategoryLive = async ({ id, page, filters }) => {
     items = pickedItems;
 
     // 各分类列表接口经常只给 year，完整首映/首播日期需要详情接口补全
-    // 只要没有完整到“月/日”的日期，就尝试拉一次详情；详情失败时仍回退显示年份
+    // 只要没有完整到"月/日"的日期，就尝试拉一次详情；详情失败时仍回退显示年份
     const hasFullPubdate = (it) => {
       const sub = it.subject || {};
       const raw = sub.pubdate || sub.release_date || it.pubdate || it.release_date || '';
       return /\d{4}[-/.年]\d{1,2}/.test(String(raw));
     };
 
-    // 各分类都使用同一套补齐逻辑：只要没有完整到“月/日”的日期，就拉详情接口补全
+    // 各分类都使用同一套补齐逻辑：只要没有完整到"月/日"的日期，就拉详情接口补全
     const needYearDetail = items.filter((it) => !hasFullPubdate(it));
 
     for (let i = 0; i < needYearDetail.length; i += 40) {
@@ -485,102 +485,140 @@ const decodeExt = (ext) => {
 };
 
 const buildHomeList = async () => {
-  const sources = [
-    { id: "hot_movie", filters: { slug: "all" }, take: 2 },
-    { id: "hot_tv", filters: { slug: "all" }, take: 2 },
-    { id: "hot_show", filters: { slug: "all" }, take: 1 }
-  ];
+  try {
+    const sources = [
+      { id: "hot_movie", filters: { slug: "all" }, take: 2 },
+      { id: "hot_tv", filters: { slug: "all" }, take: 2 },
+      { id: "hot_show", filters: { slug: "all" }, take: 1 }
+    ];
 
-  const results = sources.map((source) => ({
-    ...source,
-    list: [],
-    seen: new Set(),
-    cursor: 0,
-    nextPage: 1,
-    pagecount: Infinity,
-    noMore: false
-  }));
+    const results = sources.map((source) => ({
+      ...source,
+      list: [],
+      seen: new Set(),
+      cursor: 0,
+      nextPage: 1,
+      pagecount: Infinity,
+      noMore: false
+    }));
 
-  const loadUntilEnough = async (result, need) => {
-    while (result.list.length - result.cursor < need && !result.noMore) {
-      if (result.nextPage > result.pagecount) {
-        result.noMore = true;
-        break;
+    const loadUntilEnough = async (result, need) => {
+      while (result.list.length - result.cursor < need && !result.noMore) {
+        if (result.nextPage > result.pagecount) {
+          result.noMore = true;
+          break;
+        }
+
+        const data = await _category({ id: result.id, page: result.nextPage, filters: result.filters });
+        result.nextPage++;
+
+        if (!data?.list?.length) {
+          result.noMore = true;
+          break;
+        }
+
+        result.pagecount = data.pagecount || result.pagecount;
+        for (const item of data.list) {
+          if (!item?.vod_id || result.seen.has(item.vod_id)) continue;
+          result.seen.add(item.vod_id);
+          result.list.push(item);
+        }
       }
 
-      const data = await _category({ id: result.id, page: result.nextPage, filters: result.filters });
-      result.nextPage++;
+      return result.list.length - result.cursor >= need;
+    };
 
-      if (!data?.list?.length) {
-        result.noMore = true;
-        break;
+    // 首页热门优先按 2部电影、2部剧集、1部综艺 循环；对应类别无下一页时，电影/剧集互补，电影剧集都无再用综艺补
+    const merged = [];
+    const seen = new Set();
+    const movieIndex = 0;
+    const tvIndex = 1;
+    const showIndex = 2;
+    const pattern = [movieIndex, movieIndex, tvIndex, tvIndex, showIndex];
+
+    const takeAvailable = async (index) => {
+      // 增加安全边界检查，防止结果为null时无限循环
+      const result = results[index];
+      if (!result) return null;
+
+      let attempts = 0;
+      const maxAttempts = 10; // 最多尝试10次防止死循环
+
+      while (attempts < maxAttempts) {
+        attempts++;
+        
+        try {
+          await loadUntilEnough(result, 1);
+        } catch (err) {
+          log.warn(`loadUntilEnough异常 [index=${index}]: ${err.message}`);
+          return null;
+        }
+
+        while (result.cursor < result.list.length) {
+          const item = result.list[result.cursor++];
+          if (!item?.vod_id || seen.has(item.vod_id)) continue;
+          return item;
+        }
+
+        if (result.noMore) return null;
+      }
+      
+      return null;
+    };
+
+    const getFallbackOrder = (primaryIndex) => {
+      if (primaryIndex === movieIndex) return [movieIndex, tvIndex, showIndex];
+      if (primaryIndex === tvIndex) return [tvIndex, movieIndex, showIndex];
+      return [showIndex, movieIndex, tvIndex];
+    };
+
+    let lastMergedLen = 0;
+    let noProgressCount = 0;
+    const maxNoProgressRounds = 3; // 连续3轮没有进展就停止
+
+    while (merged.length < 120) {
+      let addedThisRound = 0;
+
+      for (const primaryIndex of pattern) {
+        let item = null;
+
+        for (const index of getFallbackOrder(primaryIndex)) {
+          item = await takeAvailable(index);
+          if (item) break;
+        }
+
+        if (!item) {
+          if (merged.length > 0) return merged;
+          continue;
+        }
+
+        seen.add(item.vod_id);
+        merged.push(item);
+        addedThisRound++;
+
+        if (merged.length >= 120) return merged;
       }
 
-      result.pagecount = data.pagecount || result.pagecount;
-      for (const item of data.list) {
-        if (!item?.vod_id || result.seen.has(item.vod_id)) continue;
-        result.seen.add(item.vod_id);
-        result.list.push(item);
+      // 检查是否有进展
+      if (merged.length === lastMergedLen) {
+        noProgressCount++;
+        if (noProgressCount >= maxNoProgressRounds) {
+          log.warn(`buildHomeList: 连续${maxNoProgressRounds}轮无进展，停止加载`);
+          break;
+        }
+      } else {
+        noProgressCount = 0;
       }
+      lastMergedLen = merged.length;
+
+      if (addedThisRound === 0) break;
     }
 
-    return result.list.length - result.cursor >= need;
-  };
-
-  // 首页热门优先按 2部电影、2部剧集、1部综艺 循环；对应类别无下一页时，电影/剧集互补，电影剧集都无再用综艺补
-  const merged = [];
-  const seen = new Set();
-  const movieIndex = 0;
-  const tvIndex = 1;
-  const showIndex = 2;
-  const pattern = [movieIndex, movieIndex, tvIndex, tvIndex, showIndex];
-
-  const takeAvailable = async (index) => {
-    const result = results[index];
-
-    while (true) {
-      await loadUntilEnough(result, 1);
-
-      while (result.cursor < result.list.length) {
-        const item = result.list[result.cursor++];
-        if (!item?.vod_id || seen.has(item.vod_id)) continue;
-        return item;
-      }
-
-      if (result.noMore) return null;
-    }
-  };
-
-  const getFallbackOrder = (primaryIndex) => {
-    if (primaryIndex === movieIndex) return [movieIndex, tvIndex, showIndex];
-    if (primaryIndex === tvIndex) return [tvIndex, movieIndex, showIndex];
-    return [showIndex, movieIndex, tvIndex];
-  };
-
-  while (merged.length < 120) {
-    let addedThisRound = 0;
-
-    for (const primaryIndex of pattern) {
-      let item = null;
-
-      for (const index of getFallbackOrder(primaryIndex)) {
-        item = await takeAvailable(index);
-        if (item) break;
-      }
-
-      if (!item) return merged;
-
-      seen.add(item.vod_id);
-      merged.push(item);
-      addedThisRound++;
-
-      if (merged.length >= 120) return merged;
-    }
-
-    if (addedThisRound === 0) break;
+    return merged;
+  } catch (err) {
+    log.error(`buildHomeList异常: ${err.message}`);
+    return [];
   }
-
-  return merged;
 };
 
 const handleT4Request = async (req) => {
@@ -606,7 +644,13 @@ const handleT4Request = async (req) => {
     { type_id: "top_250", type_name: "电影Top250" }
   ];
 
-  const homeList = await buildHomeList();
+  let homeList = [];
+  try {
+    homeList = await buildHomeList();
+  } catch (err) {
+    log.error(`buildHomeList执行失败: ${err.message}`);
+    homeList = [];
+  }
 
   return {
     class: classList,
