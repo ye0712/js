@@ -13,8 +13,8 @@ class Spider(BaseSpider):
         self.site = "https://pinglian.lol"
         self.api_list = self.site + "/api/get_videos.php"
         self.api_pan = self.site + "/api/search_pan_links.php"
-        self.username = "224709311@qq.com"
-        self.password = "ye4811811"
+        self.username = ""
+        self.password = ""
         self.cookie = ""
         self.check_api = ""
         self.enable_check = False
