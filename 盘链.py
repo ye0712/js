@@ -3,7 +3,7 @@
 # @author ye0712
 # @description 盘链网盘聚合源：支持分类、搜索、网盘链接与可选链接检测
 # @indexs 1
-# @version 1.1.0
+# @version 1.1.1
 # @downloadURL https://raw.githubusercontent.com/ye0712/js/main/%E7%9B%98%E9%93%BE.py
 
 import base64
@@ -13,32 +13,20 @@ import re
 import time
 
 import requests
-from spider_runner import OmniBox, run
+from spider_runner import run
 
+requests.packages.urllib3.disable_warnings()
 
 SITE = os.environ.get("PANLIAN_SITE", "https://pinglian.lol").rstrip("/")
 LIST_API = SITE + "/api/get_videos.php"
 PAN_API = SITE + "/api/search_pan_links.php"
-
-UA = os.environ.get(
-    "PANLIAN_UA",
-    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
-)
-
-CHANNELS = {
-    "1": "电影",
-    "2": "电视剧",
-    "3": "综艺",
-    "4": "动漫",
-}
+UA = os.environ.get("PANLIAN_UA", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36")
+CHANNELS = {"1": "电影", "2": "电视剧", "3": "综艺", "4": "动漫"}
 
 
 def _log(level, message):
-    try:
-        OmniBox.log(level, "[panlian] " + str(message))
-    except Exception:
-        print("[panlian][%s] %s" % (level, message))
+    # OmniBox.log 在当前运行器中是协程，避免在同步请求函数里产生未等待警告。
+    print("[panlian][%s] %s" % (level, message))
 
 
 def _b64_encode(value):
@@ -86,7 +74,6 @@ class PanLianSpider:
         self.password = os.environ.get("PANLIAN_PASSWORD", "")
         self.cookie = os.environ.get("PANLIAN_COOKIE", "")
         self.enable_check = os.environ.get("PANLIAN_ENABLE_CHECK", "0") == "1"
-
         if self.cookie:
             self.session.headers.update({"Cookie": self.cookie})
         elif self.username and self.password:
@@ -110,15 +97,7 @@ class PanLianSpider:
     def _login(self):
         try:
             self.session.get(SITE + "/pages/login.php", timeout=12)
-            data = self._request_json(
-                SITE + "/api/login.php",
-                method="POST",
-                data={
-                    "username": self.username,
-                    "password": self.password,
-                    "remember": "on",
-                },
-            )
+            data = self._request_json(SITE + "/api/login.php", method="POST", data={"username": self.username, "password": self.password, "remember": "on"})
             _log("info", "登录结果 success=%s" % bool(data.get("success")))
         except Exception as exc:
             _log("error", "登录失败: %s" % exc)
@@ -131,51 +110,25 @@ class PanLianSpider:
             params["t"] = channel
         else:
             return {"list": [], "page": 1, "pagecount": 0, "total": 0}
-
         data = self._request_json(LIST_API, params=params)
         if data.get("code") != 1:
             return {"list": [], "page": params["pg"], "pagecount": 0, "total": 0}
-        return {
-            "list": data.get("list", []) or [],
-            "page": data.get("page", params["pg"]),
-            "pagecount": data.get("pagecount", 1),
-            "total": data.get("total", 0),
-        }
+        return {"list": data.get("list", []) or [], "page": data.get("page", params["pg"]), "pagecount": data.get("pagecount", 1), "total": data.get("total", 0)}
 
     def _vod(self, item):
-        return {
-            "vod_id": _b64_encode(item),
-            "vod_name": item.get("vod_name", ""),
-            "vod_pic": item.get("vod_pic", ""),
-            "vod_remarks": item.get("vod_remarks", "") or item.get("type_name", ""),
-            "vod_year": item.get("vod_year", ""),
-            "type_name": item.get("type_name", ""),
-        }
+        return {"vod_id": _b64_encode(item), "vod_name": item.get("vod_name", ""), "vod_pic": item.get("vod_pic", ""), "vod_remarks": item.get("vod_remarks", "") or item.get("type_name", ""), "vod_year": item.get("vod_year", ""), "type_name": item.get("type_name", "")}
 
     def _pan_url(self, item):
         if not isinstance(item, dict):
             return ""
-        return item.get("url", "") or (
-            SITE + "/api/go.php?t=" + str(item.get("token", ""))
-            if item.get("token") else ""
-        )
+        return item.get("url", "") or (SITE + "/api/go.php?t=" + str(item.get("token", "")) if item.get("token") else "")
 
     def _check_links(self, links, disk_type):
         if not self.enable_check or not self.check_url or not links:
             return links
         try:
-            response = requests.post(
-                self.check_url,
-                json={"items": [{"disk_type": disk_type, "url": x} for x in links]},
-                headers={"User-Agent": UA, "Accept": "application/json"},
-                timeout=15,
-                verify=False,
-            )
-            data = response.json()
-            valid = [
-                x.get("url", "") for x in data.get("results", [])
-                if x.get("state") == "ok" and x.get("url")
-            ]
+            response = requests.post(self.check_url, json={"items": [{"disk_type": disk_type, "url": x} for x in links]}, headers={"User-Agent": UA, "Accept": "application/json"}, timeout=15, verify=False)
+            valid = [x.get("url", "") for x in response.json().get("results", []) if x.get("state") == "ok" and x.get("url")]
             return valid or links
         except Exception as exc:
             _log("error", "PanCheck 失败，保留原链接: %s" % exc)
@@ -183,8 +136,7 @@ class PanLianSpider:
 
     def _make_source(self, disk_type, payload):
         links = payload.get("links", []) if isinstance(payload, dict) else []
-        raw = []
-        seen = set()
+        raw, seen = [], set()
         for item in links:
             url = self._pan_url(item)
             if url and url not in seen:
@@ -192,9 +144,7 @@ class PanLianSpider:
                 raw.append(url)
         if not raw:
             return None
-
-        valid = self._check_links(raw, disk_type)
-        valid_set = set(valid)
+        valid_set = set(self._check_links(raw, disk_type))
         episodes = []
         for item in links:
             url = self._pan_url(item)
@@ -203,23 +153,13 @@ class PanLianSpider:
             password = item.get("password", "") if isinstance(item, dict) else ""
             if password and "pwd=" not in url and "password=" not in url:
                 url += ("&" if "?" in url else "?") + "pwd=" + str(password)
-            title = _safe_text(item.get("title") or payload.get("name") or disk_type)
-            episodes.append({
-                "name": title,
-                "playId": _b64_encode(url),
-            })
+            episodes.append({"name": _safe_text(item.get("title") or payload.get("name") or disk_type), "playId": _b64_encode(url)})
         if not episodes:
             return None
-        return {
-            "name": payload.get("name", disk_type),
-            "episodes": episodes,
-        }
+        return {"name": payload.get("name", disk_type), "episodes": episodes}
 
     def _pan_sources(self, name, video_id):
-        data = self._request_json(
-            PAN_API,
-            params={"keyword": name, "vod_id": video_id, "_t": int(time.time() * 1000)},
-        )
+        data = self._request_json(PAN_API, params={"keyword": name, "vod_id": video_id, "_t": int(time.time() * 1000)})
         if not data.get("success"):
             return []
         pan = data.get("data", {}) or {}
@@ -229,18 +169,17 @@ class PanLianSpider:
         for disk_type in keys:
             source = self._make_source(disk_type, pan[disk_type])
             if source:
-                source["name"] = source["name"] or disk_type
                 sources.append(source)
         _log("info", "网盘线路 %s 条" % len(sources))
         return sources
 
-    def home(self, params=None, context=None):
+    async def home(self, params=None, context=None):
         _log("info", "[home] params=%s" % (params or {}))
         classes = [{"type_id": key, "type_name": name} for key, name in CHANNELS.items()]
         result = self._list(channel="1", page=1)
         return {"class": classes, "filters": {}, "list": [self._vod(x) for x in result["list"][:12]]}
 
-    def category(self, params=None, context=None):
+    async def category(self, params=None, context=None):
         params = params or {}
         channel = str(params.get("categoryId") or params.get("type_id") or "1")
         page = _safe_int(params.get("page") or params.get("pg"), 1)
@@ -248,14 +187,9 @@ class PanLianSpider:
         if channel not in CHANNELS:
             return {"page": page, "pagecount": 0, "total": 0, "list": []}
         result = self._list(channel=channel, page=page)
-        return {
-            "page": page,
-            "pagecount": result["pagecount"],
-            "total": result["total"],
-            "list": [self._vod(x) for x in result["list"]],
-        }
+        return {"page": page, "pagecount": result["pagecount"], "total": result["total"], "list": [self._vod(x) for x in result["list"]]}
 
-    def search(self, params=None, context=None):
+    async def search(self, params=None, context=None):
         params = params or {}
         keyword = str(params.get("keyword") or params.get("wd") or "").strip()
         page = _safe_int(params.get("page") or params.get("pg"), 1)
@@ -263,87 +197,45 @@ class PanLianSpider:
         if not keyword:
             return {"page": 1, "pagecount": 0, "total": 0, "list": []}
         result = self._list(keyword=keyword, page=page)
-        return {
-            "page": page,
-            "pagecount": result["pagecount"],
-            "total": result["total"],
-            "list": [self._vod(x) for x in result["list"]],
-        }
+        return {"page": page, "pagecount": result["pagecount"], "total": result["total"], "list": [self._vod(x) for x in result["list"]]}
 
-    def detail(self, params=None, context=None):
+    async def detail(self, params=None, context=None):
         params = params or {}
         encoded = str(params.get("videoId") or params.get("vod_id") or params.get("id") or "")
         item = _b64_decode(encoded)
         _log("info", "[detail] videoId=%s" % encoded[:80])
         if not isinstance(item, dict):
             return {"list": []}
-
         name = item.get("vod_name", "")
         sources = []
-        own_from = item.get("vod_play_from", "")
-        own_url = item.get("vod_play_url", "")
+        own_from, own_url = item.get("vod_play_from", ""), item.get("vod_play_url", "")
         if own_from and own_url:
-            sources.append({
-                "name": own_from,
-                "episodes": [{"name": "资源", "playId": _b64_encode(own_url)}],
-            })
+            sources.append({"name": own_from, "episodes": [{"name": "资源", "playId": _b64_encode(own_url)}]})
         if name:
             sources.extend(self._pan_sources(name, item.get("vod_id", "")))
-
-        play_from = []
-        play_url = []
-        for source in sources:
-            play_from.append(source["name"])
-            play_url.append("#".join(
-                ep["name"] + "$" + ep["playId"] for ep in source["episodes"]
-            ))
-
-        vod = {
-            "vod_id": encoded,
-            "vod_name": name,
-            "vod_pic": item.get("vod_pic", ""),
-            "vod_year": item.get("vod_year", ""),
-            "vod_remarks": item.get("vod_remarks", ""),
-            "vod_play_sources": sources,
-            "vod_play_from": "$$$".join(play_from),
-            "vod_play_url": "$$$".join(play_url),
-        }
+        play_from = [source["name"] for source in sources]
+        play_url = ["#".join(ep["name"] + "$" + ep["playId"] for ep in source["episodes"]) for source in sources]
+        vod = {"vod_id": encoded, "vod_name": name, "vod_pic": item.get("vod_pic", ""), "vod_year": item.get("vod_year", ""), "vod_remarks": item.get("vod_remarks", ""), "vod_play_sources": sources, "vod_play_from": "$$$".join(play_from), "vod_play_url": "$$$".join(play_url)}
         return {"list": [vod]}
 
-    def play(self, params=None, context=None):
+    async def play(self, params=None, context=None):
         params = params or {}
         play_id = str(params.get("playId") or params.get("id") or "")
         _log("info", "[play] playId=%s" % play_id[:80])
         if not play_id or play_id == "noop":
             return {"urls": [], "parse": 0, "flag": "盘链"}
-
         url = _b64_decode(play_id)
         if isinstance(url, dict):
             url = url.get("url", "")
         url = str(url or "")
         if not url:
             return {"urls": [], "parse": 0, "flag": "盘链"}
-
         if url.startswith("magnet:"):
             return {"urls": [{"name": "磁力", "url": url}], "parse": 0, "flag": "盘链"}
-
-        direct = bool(re.search(r"\.(m3u8|mp4|flv|ts)(?:\?|$)", url, re.I))
-        if direct:
+        if re.search(r"\.(m3u8|mp4|flv|ts)(?:\?|$)", url, re.I):
             return {"urls": [{"name": "直链", "url": url}], "parse": 0, "flag": "盘链", "header": {"User-Agent": UA}}
-        return {
-            "urls": [{"name": "网盘", "url": "push://" + url if url.startswith("http") else url}],
-            "parse": 0,
-            "flag": "盘链",
-            "header": {"User-Agent": UA, "Referer": SITE + "/"},
-        }
+        return {"urls": [{"name": "网盘", "url": "push://" + url if url.startswith("http") else url}], "parse": 0, "flag": "盘链", "header": {"User-Agent": UA, "Referer": SITE + "/"}}
 
 
 _spider = PanLianSpider()
-module = {
-    "home": _spider.home,
-    "category": _spider.category,
-    "detail": _spider.detail,
-    "search": _spider.search,
-    "play": _spider.play,
-}
-run(module)
+run({"home": _spider.home, "category": _spider.category, "detail": _spider.detail, "search": _spider.search, "play": _spider.play})
