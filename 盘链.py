@@ -1,241 +1,156 @@
 # -*- coding: utf-8 -*-
-# @name 盘链 OmniBox
-# @author ye0712
-# @description 盘链网盘聚合源：支持分类、搜索、网盘链接与可选链接检测
-# @indexs 1
-# @version 1.1.1
-# @downloadURL https://raw.githubusercontent.com/ye0712/js/main/%E7%9B%98%E9%93%BE.py
+import requests, base64, json, time, re
+from base.spider import Spider as BaseSpider
 
-import base64
-import json
-import os
-import re
-import time
+requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
-import requests
-from spider_runner import run
-
-requests.packages.urllib3.disable_warnings()
-
-SITE = os.environ.get("PANLIAN_SITE", "https://pinglian.lol").rstrip("/")
-LIST_API = SITE + "/api/get_videos.php"
-PAN_API = SITE + "/api/search_pan_links.php"
-UA = os.environ.get("PANLIAN_UA", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36")
-CHANNELS = {"1": "电影", "2": "电视剧", "3": "综艺", "4": "动漫"}
-
-
-def _log(level, message):
-    # OmniBox.log 在当前运行器中是协程，避免在同步请求函数里产生未等待警告。
-    print("[panlian][%s] %s" % (level, message))
-
-
-def _b64_encode(value):
-    if not isinstance(value, str):
-        value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    return base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii").rstrip("=")
-
-
-def _b64_decode(value):
-    try:
-        raw = str(value) + "=" * (-len(str(value)) % 4)
-        text = base64.urlsafe_b64decode(raw.encode("ascii")).decode("utf-8")
-        try:
-            return json.loads(text)
-        except Exception:
-            return text
-    except Exception:
-        return value
-
-
-def _safe_text(value):
-    return str(value or "").replace("#", "＃").replace("$", "￥")
-
-
-def _safe_int(value, default=1):
-    try:
-        return int(value)
-    except Exception:
-        return default
-
-
-class PanLianSpider:
-    def __init__(self):
+class Spider(BaseSpider):
+    def init(self, extend=""):
+        self.site = "https://pinglian.lol"
+        self.api_list = self.site + "/api/get_videos.php"
+        self.api_pan = self.site + "/api/search_pan_links.php"
+        self.username = ""
+        self.password = ""
+        self.cookie = ""
+        self.check_api = ""
+        self.enable_check = False
+        self.ua = "Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro Build/BP1A.250305.019) AppleWebKit/537.36 Chrome/140.0.7743.101 Mobile Safari/537.36"
+        self.channels = {"1": "电影", "2": "电视剧", "3": "综艺", "4": "动漫"}
         self.session = requests.Session()
         self.session.verify = False
-        self.session.headers.update({
-            "User-Agent": UA,
-            "Accept": "*/*",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": SITE + "/all-videos.php",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        })
-        self.check_url = os.environ.get("PANCHECK_URL", "").strip()
-        self.username = os.environ.get("PANLIAN_USERNAME", "")
-        self.password = os.environ.get("PANLIAN_PASSWORD", "")
-        self.cookie = os.environ.get("PANLIAN_COOKIE", "")
-        self.enable_check = os.environ.get("PANLIAN_ENABLE_CHECK", "0") == "1"
-        if self.cookie:
-            self.session.headers.update({"Cookie": self.cookie})
-        elif self.username and self.password:
-            self._login()
+        self.session.headers.update({"User-Agent": self.ua, "X-Requested-With": "XMLHttpRequest", "Accept": "*/*", "Referer": self.site + "/all-videos.php", "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"})
+        if extend:
+            try:
+                cfg = json.loads(extend)
+                if isinstance(cfg, dict):
+                    self.username = cfg.get("username", self.username); self.password = cfg.get("password", self.password); self.cookie = cfg.get("cookie", self.cookie); self.check_api = cfg.get("check_api", self.check_api); self.enable_check = bool(cfg.get("enable_check", self.enable_check)) and bool(self.check_api)
+            except Exception:
+                pass
+        self.session.cookies.set("announcement_dismissed", "true", domain="pinglian.lol", path="/")
+        if self.cookie: self.session.headers.update({"Cookie": self.cookie})
+        elif self.username and self.password: self._login()
 
-    def _request_json(self, url, params=None, method="GET", data=None):
-        try:
-            _log("info", "请求 %s" % url)
-            if method == "POST":
-                response = self.session.post(url, params=params, data=data, timeout=15)
-            else:
-                response = self.session.get(url, params=params, timeout=15)
-            if response.status_code != 200:
-                _log("error", "HTTP %s: %s" % (response.status_code, url))
-                return {}
-            return response.json()
-        except Exception as exc:
-            _log("error", "请求失败 %s: %s" % (url, exc))
-            return {}
+    def getName(self): return "盘链"
+    def destroy(self): self.session.close()
 
     def _login(self):
         try:
-            self.session.get(SITE + "/pages/login.php", timeout=12)
-            data = self._request_json(SITE + "/api/login.php", method="POST", data={"username": self.username, "password": self.password, "remember": "on"})
-            _log("info", "登录结果 success=%s" % bool(data.get("success")))
-        except Exception as exc:
-            _log("error", "登录失败: %s" % exc)
+            self.session.get(self.site + "/pages/login.php", timeout=12)
+            return bool(self.session.post(self.site + "/api/login.php", data={"username": self.username, "password": self.password, "remember": "on"}, timeout=12).json().get("success"))
+        except Exception: return False
 
-    def _list(self, channel=None, keyword=None, page=1):
-        params = {"pg": _safe_int(page)}
-        if keyword:
-            params["wd"] = keyword
-        elif channel:
-            params["t"] = channel
-        else:
-            return {"list": [], "page": 1, "pagecount": 0, "total": 0}
-        data = self._request_json(LIST_API, params=params)
-        if data.get("code") != 1:
-            return {"list": [], "page": params["pg"], "pagecount": 0, "total": 0}
-        return {"list": data.get("list", []) or [], "page": data.get("page", params["pg"]), "pagecount": data.get("pagecount", 1), "total": data.get("total", 0)}
+    def _b64e(self, obj):
+        text = obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+        return base64.urlsafe_b64encode(text.encode()).decode().rstrip("=")
 
-    def _vod(self, item):
-        return {"vod_id": _b64_encode(item), "vod_name": item.get("vod_name", ""), "vod_pic": item.get("vod_pic", ""), "vod_remarks": item.get("vod_remarks", "") or item.get("type_name", ""), "vod_year": item.get("vod_year", ""), "type_name": item.get("type_name", "")}
-
-    def _pan_url(self, item):
-        if not isinstance(item, dict):
-            return ""
-        return item.get("url", "") or (SITE + "/api/go.php?t=" + str(item.get("token", "")) if item.get("token") else "")
-
-    def _check_links(self, links, disk_type):
-        if not self.enable_check or not self.check_url or not links:
-            return links
+    def _b64d(self, s):
         try:
-            response = requests.post(self.check_url, json={"items": [{"disk_type": disk_type, "url": x} for x in links]}, headers={"User-Agent": UA, "Accept": "application/json"}, timeout=15, verify=False)
-            valid = [x.get("url", "") for x in response.json().get("results", []) if x.get("state") == "ok" and x.get("url")]
-            return valid or links
-        except Exception as exc:
-            _log("error", "PanCheck 失败，保留原链接: %s" % exc)
-            return links
+            text = base64.urlsafe_b64decode((s + "=" * (-len(s) % 4)).encode()).decode()
+            try: return json.loads(text)
+            except Exception: return text
+        except Exception: return s
 
-    def _make_source(self, disk_type, payload):
-        links = payload.get("links", []) if isinstance(payload, dict) else []
+    def _safe(self, t): return str(t or "").replace("#", "＃").replace("$", "￥")
+
+    def _fetch_list(self, t=None, wd=None, page=1):
+        p = {"pg": page}
+        if wd: p["wd"] = wd
+        elif t: p["t"] = t
+        else: return {"list": [], "page": page, "pagecount": 0, "total": 0}
+        try:
+            d = self.session.get(self.api_list, params=p, timeout=15).json()
+            if d.get("code") == 1: return {"list": d.get("list", []), "page": d.get("page", page), "pagecount": d.get("pagecount", 1), "total": d.get("total", 0)}
+        except Exception: pass
+        return {"list": [], "page": page, "pagecount": 0, "total": 0}
+
+    def _check_links(self, links, disk_type, batch_size=30):
+        if not links or not self.check_api: return links
+        ok = []
+        for i in range(0, len(links), batch_size):
+            b = links[i:i + batch_size]
+            try:
+                d = requests.post(self.check_api, json={"items": [{"disk_type": disk_type, "url": u} for u in b]}, headers={"User-Agent": self.ua, "Accept": "application/json, text/plain, */*"}, timeout=15, verify=False).json()
+                ok.extend([x.get("url", "") for x in d.get("results", []) if x.get("state") == "ok" and x.get("url")])
+            except Exception: ok.extend(b)
+        return ok
+
+    def _pan_url(self, x): return x.get("url", "") or (self.site + "/api/go.php?t=" + x.get("token", "") if x.get("token") else "")
+
+    def _process_disk(self, k, v):
+        links = v.get("links", []) if isinstance(v, dict) else []
         raw, seen = [], set()
-        for item in links:
-            url = self._pan_url(item)
-            if url and url not in seen:
-                seen.add(url)
-                raw.append(url)
-        if not raw:
-            return None
-        valid_set = set(self._check_links(raw, disk_type))
-        episodes = []
-        for item in links:
-            url = self._pan_url(item)
-            if url not in valid_set:
-                continue
-            password = item.get("password", "") if isinstance(item, dict) else ""
-            if password and "pwd=" not in url and "password=" not in url:
-                url += ("&" if "?" in url else "?") + "pwd=" + str(password)
-            episodes.append({"name": _safe_text(item.get("title") or payload.get("name") or disk_type), "playId": _b64_encode(url)})
-        if not episodes:
-            return None
-        return {"name": payload.get("name", disk_type), "episodes": episodes}
+        for x in links:
+            u = self._pan_url(x)
+            if u and u not in seen: raw.append(u); seen.add(u)
+        if not raw: return None, None
+        valid = raw if not self.enable_check or k in {"others", "guangya"} else self._check_links(raw, k)
+        s, eps = set(valid), []
+        for x in links:
+            u = self._pan_url(x)
+            if u not in s: continue
+            pwd = x.get("password", "")
+            if pwd and "pwd=" not in u and "password=" not in u: u += ("&" if "?" in u else "?") + "pwd=" + str(pwd)
+            eps.append(self._safe(x.get("title") or v.get("name") or k) + "$" + self._b64e(u))
+        if not eps: return None, None
+        eps.insert(0, "点击选择$noop")
+        return v.get("name", k), "#".join(eps)
 
-    def _pan_sources(self, name, video_id):
-        data = self._request_json(PAN_API, params={"keyword": name, "vod_id": video_id, "_t": int(time.time() * 1000)})
-        if not data.get("success"):
-            return []
-        pan = data.get("data", {}) or {}
-        order = ["quark", "uc", "xunlei", "aliyun", "baidu", "115", "123", "tianyi", "others"]
-        keys = [x for x in order if x in pan] + [x for x in pan if x not in order]
-        sources = []
-        for disk_type in keys:
-            source = self._make_source(disk_type, pan[disk_type])
-            if source:
-                sources.append(source)
-        _log("info", "网盘线路 %s 条" % len(sources))
-        return sources
+    def _fetch_pan_links(self, name, vid):
+        try:
+            d = self.session.get(self.api_pan, params={"keyword": name, "vod_id": vid, "_t": int(time.time() * 1000)}, timeout=20).json()
+            if not d.get("success"): return "", ""
+            pan = d.get("data", {}); order = ["quark", "uc", "xunlei", "aliyun", "baidu", "115", "123", "tianyi", "others"]
+            items = [(k, pan.pop(k)) for k in order if k in pan] + list(pan.items()); fs, us = [], []
+            for k, v in items:
+                f, u = self._process_disk(k, v)
+                if f and u: fs.append(f); us.append(u)
+            return "$$$".join(fs), "$$$".join(us)
+        except Exception: return "", ""
 
-    async def home(self, params=None, context=None):
-        _log("info", "[home] params=%s" % (params or {}))
-        classes = [{"type_id": key, "type_name": name} for key, name in CHANNELS.items()]
-        result = self._list(channel="1", page=1)
-        return {"class": classes, "filters": {}, "list": [self._vod(x) for x in result["list"][:12]]}
+    def _vod(self, x): return {"vod_id": self._b64e(x), "vod_name": x.get("vod_name", ""), "vod_pic": x.get("vod_pic", ""), "vod_remarks": x.get("vod_remarks", "") or x.get("type_name", "")}
 
-    async def category(self, params=None, context=None):
-        params = params or {}
-        channel = str(params.get("categoryId") or params.get("type_id") or "1")
-        page = _safe_int(params.get("page") or params.get("pg"), 1)
-        _log("info", "[category] channel=%s page=%s" % (channel, page))
-        if channel not in CHANNELS:
-            return {"page": page, "pagecount": 0, "total": 0, "list": []}
-        result = self._list(channel=channel, page=page)
-        return {"page": page, "pagecount": result["pagecount"], "total": result["total"], "list": [self._vod(x) for x in result["list"]]}
+    def homeContent(self, filter): return {"class": [{"type_name": v, "type_id": k} for k, v in self.channels.items()], "list": [], "filters": {}}
+    def homeVideoContent(self): return {"list": [self._vod(x) for x in self._fetch_list(t="1", page=1).get("list", [])[:12]]}
 
-    async def search(self, params=None, context=None):
-        params = params or {}
-        keyword = str(params.get("keyword") or params.get("wd") or "").strip()
-        page = _safe_int(params.get("page") or params.get("pg"), 1)
-        _log("info", "[search] keyword=%s page=%s" % (keyword, page))
-        if not keyword:
-            return {"page": 1, "pagecount": 0, "total": 0, "list": []}
-        result = self._list(keyword=keyword, page=page)
-        return {"page": page, "pagecount": result["pagecount"], "total": result["total"], "list": [self._vod(x) for x in result["list"]]}
+    def categoryContent(self, tid, pg, filter, extend):
+        if tid not in self.channels: return {"list": [], "page": 1, "pagecount": 0, "limit": 30, "total": 0}
+        r = self._fetch_list(t=tid, page=int(pg) if str(pg).isdigit() else 1)
+        return {"list": [self._vod(x) for x in r.get("list", [])], "page": r.get("page", 1), "pagecount": r.get("pagecount", 0), "limit": 30, "total": r.get("total", 0)}
 
-    async def detail(self, params=None, context=None):
-        params = params or {}
-        encoded = str(params.get("videoId") or params.get("vod_id") or params.get("id") or "")
-        item = _b64_decode(encoded)
-        _log("info", "[detail] videoId=%s" % encoded[:80])
-        if not isinstance(item, dict):
-            return {"list": []}
-        name = item.get("vod_name", "")
-        sources = []
-        own_from, own_url = item.get("vod_play_from", ""), item.get("vod_play_url", "")
-        if own_from and own_url:
-            sources.append({"name": own_from, "episodes": [{"name": "资源", "playId": _b64_encode(own_url)}]})
-        if name:
-            sources.extend(self._pan_sources(name, item.get("vod_id", "")))
-        play_from = [source["name"] for source in sources]
-        play_url = ["#".join(ep["name"] + "$" + ep["playId"] for ep in source["episodes"]) for source in sources]
-        vod = {"vod_id": encoded, "vod_name": name, "vod_pic": item.get("vod_pic", ""), "vod_year": item.get("vod_year", ""), "vod_remarks": item.get("vod_remarks", ""), "vod_play_sources": sources, "vod_play_from": "$$$".join(play_from), "vod_play_url": "$$$".join(play_url)}
-        return {"list": [vod]}
+    def searchContent(self, key, quick, pg="1"):
+        page = int(pg) if str(pg).isdigit() else 1
+        if not key: return {"list": [], "page": page, "pagecount": 0, "limit": 30, "total": 0}
+        r = self._fetch_list(wd=key, page=page)
+        return {"list": [self._vod(x) for x in r.get("list", [])], "page": page, "pagecount": r.get("pagecount", 0), "limit": 30, "total": r.get("total", 0)}
 
-    async def play(self, params=None, context=None):
-        params = params or {}
-        play_id = str(params.get("playId") or params.get("id") or "")
-        _log("info", "[play] playId=%s" % play_id[:80])
-        if not play_id or play_id == "noop":
-            return {"urls": [], "parse": 0, "flag": "盘链"}
-        url = _b64_decode(play_id)
-        if isinstance(url, dict):
-            url = url.get("url", "")
-        url = str(url or "")
-        if not url:
-            return {"urls": [], "parse": 0, "flag": "盘链"}
-        if url.startswith("magnet:"):
-            return {"urls": [{"name": "磁力", "url": url}], "parse": 0, "flag": "盘链"}
-        if re.search(r"\.(m3u8|mp4|flv|ts)(?:\?|$)", url, re.I):
-            return {"urls": [{"name": "直链", "url": url}], "parse": 0, "flag": "盘链", "header": {"User-Agent": UA}}
-        return {"urls": [{"name": "网盘", "url": "push://" + url if url.startswith("http") else url}], "parse": 0, "flag": "盘链", "header": {"User-Agent": UA, "Referer": SITE + "/"}}
+    def detailContent(self, ids):
+        x = self._b64d(ids[0])
+        if not isinstance(x, dict): return {"list": []}
+        name, fs, us = x.get("vod_name", ""), [], []
+        if x.get("vod_play_from") and x.get("vod_play_url"): fs.append(x["vod_play_from"]); us.append(x["vod_play_url"])
+        pan_f, pan_u = self._fetch_pan_links(name, x.get("vod_id")) if name else ("", "")
+        if pan_f and pan_u: fs.append(pan_f); us.append(pan_u)
+        if not fs: fs, us = ["提示"], ["需要有效登录或暂无资源$noop"]
+        return {"list": [{"vod_id": ids[0], "vod_name": name, "vod_pic": x.get("vod_pic", ""), "vod_year": x.get("vod_year", ""), "vod_remarks": str(x.get("vod_remarks", "")) + " " + str(x.get("vod_score", "")), "vod_play_from": "$$$".join(fs), "vod_play_url": "$$$".join(us)}]}
 
+    def _real_pan_url(self, u):
+        if not isinstance(u, str) or "api/go.php" not in u: return u
+        try:
+            r = self.session.get(u, timeout=12, allow_redirects=True)
+            m = re.search(r"https?://(?:pan\.quark\.cn|drive\.uc\.cn|pan\.baidu\.com|www\.aliyundrive\.com|www\.alipan\.com|alipan\.com|cloud\.189\.cn|www\.123pan\.com|123pan\.com|pan\.xunlei\.com|115\.com)[^\s\"'<>]+", r.text)
+            return m.group(0).replace("&amp;", "&") if m else u
+        except Exception: return u
 
-_spider = PanLianSpider()
-run({"home": _spider.home, "category": _spider.category, "detail": _spider.detail, "search": _spider.search, "play": _spider.play})
+    def playerContent(self, flag, id, vipFlags):
+        if not id or id == "noop": return {"parse": 0, "jx": 0, "url": ""}
+        u = self._b64d(id); u = u.get("url", "") if isinstance(u, dict) else u
+        if not isinstance(u, str): return {"parse": 0, "jx": 0, "url": ""}
+        u = self._real_pan_url(u)
+        pans = ["pan.quark.cn", "drive.uc.cn", "pan.baidu.com", "aliyundrive.com", "alipan.com", "cloud.189.cn", "123pan.com", "pan.xunlei.com", "115.com"]
+        if any(x in u for x in pans): return {"parse": 0, "jx": 0, "url": "push://" + u, "header": {"User-Agent": self.ua, "Referer": self.site + "/"}}
+        if u.startswith("magnet:") or ".m3u8" in u or ".mp4" in u: return {"parse": 0, "jx": 0, "url": u, "header": {"User-Agent": self.ua}}
+        return {"parse": 0, "jx": 0, "url": "push://" + u if u.startswith("http") else u, "header": {"User-Agent": self.ua, "Referer": self.site + "/"}}
+
+    def localProxy(self, param=""): return {}
+    def isVideoFormat(self, url): return False
+    def manualVideoCheck(self): return False
