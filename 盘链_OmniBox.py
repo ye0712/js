@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # @name 盘链 OmniBox
 # @author ye0712
-# @description 盘链视频源：在线m3u8播放 + 网盘资源(4K/1080P等)
+# @description 盘链视频源：在线m3u8播放 + 网盘资源(4K/1080P等)，网盘走SDK直接播放
 # @indexs 1
-# @version 2.0.0
+# @version 2.1.0
 
 import base64
 import json
@@ -13,6 +13,11 @@ import time
 import requests
 from spider_runner import run
 
+try:
+    from omnibox_sdk import OmniBox
+except Exception:
+    OmniBox = None
+
 requests.packages.urllib3.disable_warnings()
 
 SITE = os.environ.get("PANLIAN_SITE", "https://pinglian.lol").rstrip("/")
@@ -21,6 +26,10 @@ PAN_API = SITE + "/api/search_pan_links.php"
 RESOLVE_API = SITE + "/api/resolve_token.php"
 UA = os.environ.get("PANLIAN_UA", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36")
 CHANNELS = {"1": "电影", "2": "电视剧", "3": "综艺", "4": "动漫"}
+
+# 只保留这5种网盘
+PAN_ORDER = ["quark", "uc", "baidu", "123", "guangya"]
+PAN_NAMES = {"quark": "夸克网盘", "uc": "UC网盘", "baidu": "百度网盘", "123": "123网盘", "guangya": "移动云盘"}
 
 def log(level, message):
     return None
@@ -56,8 +65,8 @@ class PanLian:
         if cookie:
             self.session.headers.update({"Cookie": cookie})
         else:
-            username = os.environ.get("PANLIAN_USERNAME", "224709311@qq.com")
-            password = os.environ.get("PANLIAN_PASSWORD", "ye4811811")
+            username = os.environ.get("PANLIAN_USERNAME", "")
+            password = os.environ.get("PANLIAN_PASSWORD", "")
             if username and password:
                 try:
                     self.session.post(SITE + "/api/login.php", data={"username": username, "password": password, "remember": "on"}, timeout=15)
@@ -125,9 +134,10 @@ class PanLian:
         if not data.get("success"):
             return []
         pan = data.get("data", {}) or {}
-        order = ["quark", "uc", "xunlei", "aliyun", "baidu", "115", "123", "tianyi", "guangya", "mobile", "weiyun", "lanzou", "jianguoyun", "pikpak", "others"]
         sources = []
-        for disk in order + [x for x in pan if x not in order]:
+        for disk in PAN_ORDER:
+            if disk not in pan:
+                continue
             group = pan.get(disk, {})
             if not isinstance(group, dict):
                 continue
@@ -139,11 +149,11 @@ class PanLian:
                 token = item.get("token", "")
                 if not token:
                     continue
-                title = str(item.get("title") or group.get("name") or disk)
+                title = str(item.get("title") or PAN_NAMES.get(disk, disk))
                 title = title.replace("#", "＃").replace("$", "￥")
                 episodes.append({"name": title, "playId": enc({"type": "pan", "token": token, "password": item.get("password", ""), "title": title})})
             if episodes:
-                sources.append({"name": group.get("name", disk), "episodes": episodes})
+                sources.append({"name": PAN_NAMES.get(disk, disk), "episodes": episodes})
         return sources
 
     async def home(self, params=None, context=None):
@@ -202,7 +212,19 @@ class PanLian:
             real_url = self.resolve_token(token)
             if not real_url:
                 return {"urls": [], "parse": 0, "flag": "盘链"}
-            return {"urls": [{"name": data.get("title", "网盘"), "url": "push://" + real_url}], "parse": 0, "flag": "盘链", "header": {"User-Agent": UA, "Referer": SITE + "/"}}
+            title = data.get("title", "网盘")
+            # 用SDK直接播放，不走push
+            if OmniBox:
+                try:
+                    drive_info = OmniBox.getDriveInfoByShareURL(real_url)
+                    if drive_info:
+                        play_info = OmniBox.getDriveVideoPlayInfo(drive_info)
+                        if play_info and play_info.get("url"):
+                            return {"urls": [{"name": title, "url": play_info["url"]}], "parse": 0, "flag": "盘链", "header": play_info.get("header", {})}
+                except Exception:
+                    pass
+            # SDK失败回退push
+            return {"urls": [{"name": title, "url": "push://" + real_url}], "parse": 0, "flag": "盘链", "header": {"User-Agent": UA, "Referer": SITE + "/"}}
         return {"urls": [], "parse": 0, "flag": "盘链"}
 
 _spider = PanLian()
