@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
 # @name 盘链 OmniBox
 # @author ye0712
-# @description 盘链网盘聚合 OmniBox 源，与旧版盘链.py并存
+# @description 盘链视频源：在线m3u8播放 + 网盘资源(4K/1080P等)
 # @indexs 1
-# @version 1.1.2
-# @downloadURL https://raw.githubusercontent.com/ye0712/js/main/%E7%9B%98%E9%93%BE_OmniBox.py
+# @version 2.0.0
 
 import base64
 import json
 import os
-import re
 import time
 
 import requests
@@ -20,20 +18,17 @@ requests.packages.urllib3.disable_warnings()
 SITE = os.environ.get("PANLIAN_SITE", "https://pinglian.lol").rstrip("/")
 LIST_API = SITE + "/api/get_videos.php"
 PAN_API = SITE + "/api/search_pan_links.php"
+RESOLVE_API = SITE + "/api/resolve_token.php"
 UA = os.environ.get("PANLIAN_UA", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36")
 CHANNELS = {"1": "电影", "2": "电视剧", "3": "综艺", "4": "动漫"}
 
-
-# 运行器通过 stdout 传输 JSON，不能在脚本中 print 日志，否则会污染首页响应。
 def log(level, message):
     return None
-
 
 def enc(value):
     if not isinstance(value, str):
         value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     return base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
-
 
 def dec(value):
     try:
@@ -46,52 +41,38 @@ def dec(value):
     except Exception:
         return value
 
-
 def intval(value, default=1):
     try:
         return int(value)
     except Exception:
         return default
 
-
 class PanLian:
     def __init__(self):
         self.session = requests.Session()
         self.session.verify = False
-        self.session.headers.update({
-            "User-Agent": UA,
-            "Accept": "*/*",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": SITE + "/all-videos.php",
-        })
-        self.check_url = os.environ.get("PANCHECK_URL", "").strip()
-        self.enable_check = os.environ.get("PANLIAN_ENABLE_CHECK", "0") == "1"
+        self.session.headers.update({"User-Agent": UA, "Accept": "*/*", "X-Requested-With": "XMLHttpRequest", "Referer": SITE + "/all-videos.php"})
         cookie = os.environ.get("PANLIAN_COOKIE", "").strip()
         if cookie:
             self.session.headers.update({"Cookie": cookie})
         else:
-            username = os.environ.get("PANLIAN_USERNAME", "")
-            password = os.environ.get("PANLIAN_PASSWORD", "")
+            username = os.environ.get("PANLIAN_USERNAME", "224709311@qq.com")
+            password = os.environ.get("PANLIAN_PASSWORD", "ye4811811")
             if username and password:
                 try:
-                    self.session.post(
-                        SITE + "/api/login.php",
-                        data={"username": username, "password": password, "remember": "on"},
-                        timeout=15,
-                    )
+                    self.session.post(SITE + "/api/login.php", data={"username": username, "password": password, "remember": "on"}, timeout=15)
                 except Exception:
                     pass
 
-    def get_json(self, url, params=None, method="GET", data=None):
+    def get_json(self, url, params=None, json_body=None):
         try:
-            response = (
-                self.session.post(url, params=params, data=data, timeout=15)
-                if method == "POST"
-                else self.session.get(url, params=params, timeout=15)
-            )
-            if response.status_code != 200:
+            if json_body is not None:
+                r = self.session.post(url, json=json_body, timeout=15)
+            else:
+                r = self.session.get(url, params=params, timeout=15)
+            if r.status_code != 200:
                 return {}
-            return response.json()
+            return r.json()
         except Exception:
             return {}
 
@@ -107,58 +88,67 @@ class PanLian:
         return data if data.get("code") == 1 else {}
 
     def vod(self, item):
-        return {
-            "vod_id": enc(item),
-            "vod_name": item.get("vod_name", ""),
-            "vod_pic": item.get("vod_pic", ""),
-            "vod_remarks": item.get("vod_remarks", "") or item.get("type_name", ""),
-            "vod_year": item.get("vod_year", ""),
-        }
+        return {"vod_id": enc(item), "vod_name": item.get("vod_name", ""), "vod_pic": item.get("vod_pic", ""), "vod_remarks": item.get("vod_remarks", "") or item.get("type_name", ""), "vod_year": item.get("vod_year", "")}
 
-    def pan_url(self, item):
-        if not isinstance(item, dict):
-            return ""
-        return item.get("url", "") or (
-            SITE + "/api/go.php?t=" + str(item.get("token"))
-            if item.get("token")
-            else ""
-        )
+    def build_online_sources(self, item):
+        play_from = str(item.get("vod_play_from") or "")
+        play_url = str(item.get("vod_play_url") or "")
+        from_list = [x for x in play_from.split("$$$") if x]
+        url_list = [x for x in play_url.split("$$$") if x]
+        sources = []
+        for i, pf in enumerate(from_list):
+            pv = url_list[i] if i < len(url_list) else ""
+            episodes = []
+            for seg in str(pv).split("#"):
+                seg = seg.strip()
+                if not seg:
+                    continue
+                parts = seg.split("$", 1)
+                name = parts[0].strip() if len(parts) > 1 else "播放"
+                url = parts[1].strip() if len(parts) > 1 else parts[0].strip()
+                if not url:
+                    continue
+                name = name.replace("#", "＃").replace("$", "￥")
+                episodes.append({"name": name, "playId": enc({"type": "online", "url": url})})
+            if episodes:
+                sources.append({"name": pf or "在线播放", "episodes": episodes})
+        return sources
 
-    def pan_sources(self, name, vod_id):
-        data = self.get_json(
-            PAN_API,
-            {"keyword": name, "vod_id": vod_id, "_t": int(time.time() * 1000)},
-        )
+    def resolve_token(self, token):
+        data = self.get_json(RESOLVE_API, json_body={"token": token})
+        if data.get("success"):
+            return data.get("url", "")
+        return ""
+
+    def build_pan_sources(self, name, vod_id):
+        data = self.get_json(PAN_API, {"keyword": name, "vod_id": vod_id, "_t": int(time.time() * 1000)})
         if not data.get("success"):
             return []
         pan = data.get("data", {}) or {}
-        order = ["quark", "uc", "xunlei", "aliyun", "baidu", "115", "123", "tianyi", "others"]
+        order = ["quark", "uc", "xunlei", "aliyun", "baidu", "115", "123", "tianyi", "guangya", "mobile", "weiyun", "lanzou", "jianguoyun", "pikpak", "others"]
         sources = []
         for disk in order + [x for x in pan if x not in order]:
             group = pan.get(disk, {})
-            links = group.get("links", []) if isinstance(group, dict) else []
+            if not isinstance(group, dict):
+                continue
+            links = group.get("links", [])
+            if not links:
+                continue
             episodes = []
             for item in links:
-                url = self.pan_url(item)
-                if not url:
+                token = item.get("token", "")
+                if not token:
                     continue
-                password = item.get("password", "")
-                if password and "pwd=" not in url and "password=" not in url:
-                    url += ("&" if "?" in url else "?") + "pwd=" + str(password)
                 title = str(item.get("title") or group.get("name") or disk)
                 title = title.replace("#", "＃").replace("$", "￥")
-                episodes.append({"name": title, "playId": enc(url)})
+                episodes.append({"name": title, "playId": enc({"type": "pan", "token": token, "password": item.get("password", ""), "title": title})})
             if episodes:
                 sources.append({"name": group.get("name", disk), "episodes": episodes})
         return sources
 
     async def home(self, params=None, context=None):
         data = self.listing(channel="1")
-        return {
-            "class": [{"type_id": k, "type_name": v} for k, v in CHANNELS.items()],
-            "filters": {},
-            "list": [self.vod(x) for x in data.get("list", [])[:12]],
-        }
+        return {"class": [{"type_id": k, "type_name": v} for k, v in CHANNELS.items()], "filters": {}, "list": [self.vod(x) for x in data.get("list", [])[:12]]}
 
     async def category(self, params=None, context=None):
         params = params or {}
@@ -167,12 +157,7 @@ class PanLian:
         if channel not in CHANNELS:
             return {"page": page, "pagecount": 0, "total": 0, "list": []}
         data = self.listing(channel=channel, page=page)
-        return {
-            "page": page,
-            "pagecount": data.get("pagecount", 0),
-            "total": data.get("total", 0),
-            "list": [self.vod(x) for x in data.get("list", [])],
-        }
+        return {"page": page, "pagecount": data.get("pagecount", 0), "total": data.get("total", 0), "list": [self.vod(x) for x in data.get("list", [])]}
 
     async def search(self, params=None, context=None):
         params = params or {}
@@ -181,12 +166,7 @@ class PanLian:
         if not keyword:
             return {"page": 1, "pagecount": 0, "total": 0, "list": []}
         data = self.listing(keyword=keyword, page=page)
-        return {
-            "page": page,
-            "pagecount": data.get("pagecount", 0),
-            "total": data.get("total", 0),
-            "list": [self.vod(x) for x in data.get("list", [])],
-        }
+        return {"page": page, "pagecount": data.get("pagecount", 0), "total": data.get("total", 0), "list": [self.vod(x) for x in data.get("list", [])]}
 
     async def detail(self, params=None, context=None):
         params = params or {}
@@ -194,47 +174,36 @@ class PanLian:
         item = dec(video_id)
         if not isinstance(item, dict):
             return {"list": []}
-        sources = self.pan_sources(item.get("vod_name", ""), item.get("vod_id", ""))
+        vod_name = item.get("vod_name", "")
+        vod_id_str = str(item.get("vod_id", ""))
+        sources = self.build_online_sources(item)
+        pan_sources = self.build_pan_sources(vod_name, vod_id_str)
+        sources.extend(pan_sources)
         play_from = "$$$".join(x["name"] for x in sources)
-        play_url = "$$$".join(
-            "#".join(e["name"] + "$" + e["playId"] for e in x["episodes"])
-            for x in sources
-        )
-        return {
-            "list": [{
-                "vod_id": video_id,
-                "vod_name": item.get("vod_name", ""),
-                "vod_pic": item.get("vod_pic", ""),
-                "vod_year": item.get("vod_year", ""),
-                "vod_remarks": item.get("vod_remarks", ""),
-                "vod_play_sources": sources,
-                "vod_play_from": play_from,
-                "vod_play_url": play_url,
-            }]
-        }
+        play_url = "$$$".join("#".join(e["name"] + "$" + e["playId"] for e in x["episodes"]) for x in sources)
+        return {"list": [{"vod_id": video_id, "vod_name": vod_name, "vod_pic": item.get("vod_pic", ""), "vod_year": item.get("vod_year", ""), "vod_remarks": item.get("vod_remarks", ""), "vod_actor": item.get("vod_actor", ""), "vod_director": item.get("vod_director", ""), "vod_content": item.get("vod_content", ""), "vod_area": item.get("vod_area", ""), "vod_lang": item.get("vod_lang", ""), "type_name": item.get("type_name", ""), "vod_play_sources": sources, "vod_play_from": play_from, "vod_play_url": play_url}]}
 
     async def play(self, params=None, context=None):
         params = params or {}
         play_id = str(params.get("playId") or params.get("id") or "")
-        url = dec(play_id)
-        if isinstance(url, dict):
-            url = url.get("url", "")
-        url = str(url or "")
-        if not url:
+        data = dec(play_id)
+        if not isinstance(data, dict):
             return {"urls": [], "parse": 0, "flag": "盘链"}
-        return {
-            "urls": [{"name": "网盘", "url": "push://" + url if url.startswith("http") else url}],
-            "parse": 0,
-            "flag": "盘链",
-            "header": {"User-Agent": UA, "Referer": SITE + "/"},
-        }
-
+        ptype = data.get("type", "")
+        if ptype == "online":
+            url = data.get("url", "")
+            if not url:
+                return {"urls": [], "parse": 0, "flag": "盘链"}
+            return {"urls": [{"name": "在线播放", "url": url}], "parse": 0, "flag": "盘链", "header": {"User-Agent": UA, "Referer": SITE + "/"}}
+        elif ptype == "pan":
+            token = data.get("token", "")
+            if not token:
+                return {"urls": [], "parse": 0, "flag": "盘链"}
+            real_url = self.resolve_token(token)
+            if not real_url:
+                return {"urls": [], "parse": 0, "flag": "盘链"}
+            return {"urls": [{"name": data.get("title", "网盘"), "url": "push://" + real_url}], "parse": 0, "flag": "盘链", "header": {"User-Agent": UA, "Referer": SITE + "/"}}
+        return {"urls": [], "parse": 0, "flag": "盘链"}
 
 _spider = PanLian()
-run({
-    "home": _spider.home,
-    "category": _spider.category,
-    "detail": _spider.detail,
-    "search": _spider.search,
-    "play": _spider.play,
-})
+run({"home": _spider.home, "category": _spider.category, "detail": _spider.detail, "search": _spider.search, "play": _spider.play})
