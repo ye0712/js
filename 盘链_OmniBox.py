@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # @name 盘链 OmniBox
 # @author ye0712
-# @description 盘链视频源：在线m3u8播放 + 网盘资源(4K/1080P等)，网盘走SDK直接播放
+# @description 盘链视频源：在线m3u8播放 + 网盘资源(百度/UC/夸克/123/移动)，网盘走SDK-CK直接播放
 # @indexs 1
-# @version 2.1.0
+# @version 2.2.0
 
 import base64
 import json
@@ -27,17 +27,21 @@ RESOLVE_API = SITE + "/api/resolve_token.php"
 UA = os.environ.get("PANLIAN_UA", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36")
 CHANNELS = {"1": "电影", "2": "电视剧", "3": "综艺", "4": "动漫"}
 
-# 只保留这5种网盘
-PAN_ORDER = ["quark", "uc", "baidu", "123", "guangya"]
-PAN_NAMES = {"quark": "夸克网盘", "uc": "UC网盘", "baidu": "百度网盘", "123": "123网盘", "guangya": "移动云盘"}
+# 只保留这5种网盘：百度 / UC / 夸克 / 123 / 移动
+PAN_ORDER = ["quark", "uc", "baidu", "123", "mobile"]
+PAN_NAMES = {"quark": "夸克网盘", "uc": "UC网盘", "baidu": "百度网盘", "123": "123网盘", "mobile": "移动云盘"}
+VIDEO_EXTS = (".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".m4v", ".ts", ".m2ts", ".webm", ".mpg", ".mpeg")
+
 
 def log(level, message):
     return None
+
 
 def enc(value):
     if not isinstance(value, str):
         value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     return base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")
+
 
 def dec(value):
     try:
@@ -50,11 +54,77 @@ def dec(value):
     except Exception:
         return value
 
+
 def intval(value, default=1):
     try:
         return int(value)
     except Exception:
         return default
+
+
+def file_id_of(item):
+    return str(item.get("fid") or item.get("file_id") or item.get("id") or item.get("fileId") or "").strip()
+
+
+def file_name_of(item):
+    return str(item.get("file_name") or item.get("name") or item.get("title") or item.get("filename") or "").strip()
+
+
+def is_folder(item):
+    if item.get("is_dir") is True or item.get("is_folder") is True:
+        return True
+    if str(item.get("dir") or "") in ("1", "true", "True"):
+        return True
+    if str(item.get("type") or "").lower() in ("folder", "dir", "directory"):
+        return True
+    if str(item.get("category") or "").lower() in ("folder", "dir", "directory"):
+        return True
+    if str(item.get("file_type") or "") in ("0",):
+        return True
+    return False
+
+
+def looks_like_video(item):
+    name = file_name_of(item).lower()
+    if any(name.endswith(ext) for ext in VIDEO_EXTS):
+        return True
+    mime = str(item.get("mime_type") or item.get("mime") or "").lower()
+    if mime.startswith("video/"):
+        return True
+    if str(item.get("category") or "").lower() == "video":
+        return True
+    if str(item.get("file_type") or "") in ("1",):
+        return True
+    return False
+
+
+def extract_play_urls(play_info):
+    """从 SDK getDriveVideoPlayInfo 返回中提取可播放 URL 列表。"""
+    urls = []
+    if not isinstance(play_info, dict):
+        return urls
+    raw = play_info.get("urls")
+    if not isinstance(raw, list):
+        raw = play_info.get("url")
+    if isinstance(raw, str) and raw.strip():
+        urls.append({"name": "播放", "url": raw.strip()})
+    elif isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict):
+                u = str(item.get("url") or "").strip()
+                if u:
+                    urls.append({"name": str(item.get("name") or "播放"), "url": u})
+            elif isinstance(item, str) and item.strip():
+                urls.append({"name": "播放", "url": item.strip()})
+    seen = set()
+    deduped = []
+    for item in urls:
+        if item["url"] in seen:
+            continue
+        seen.add(item["url"])
+        deduped.append(item)
+    return deduped
+
 
 class PanLian:
     def __init__(self):
@@ -130,6 +200,7 @@ class PanLian:
         return ""
 
     def build_pan_sources(self, name, vod_id):
+        """只保留 百度/UC/夸克/123/移动 五种网盘，每链接一集（play 时再展开播放）。"""
         data = self.get_json(PAN_API, {"keyword": name, "vod_id": vod_id, "_t": int(time.time() * 1000)})
         if not data.get("success"):
             return []
@@ -151,10 +222,43 @@ class PanLian:
                     continue
                 title = str(item.get("title") or PAN_NAMES.get(disk, disk))
                 title = title.replace("#", "＃").replace("$", "￥")
-                episodes.append({"name": title, "playId": enc({"type": "pan", "token": token, "password": item.get("password", ""), "title": title})})
+                episodes.append({"name": title, "playId": enc({"type": "pan", "token": token, "title": title, "disk": disk})})
             if episodes:
                 sources.append({"name": PAN_NAMES.get(disk, disk), "episodes": episodes})
         return sources
+
+    async def collect_drive_videos(self, share_url, fid="0", depth=0, limit=30):
+        """递归展开网盘分享，收集视频文件 {fid, name}。"""
+        if OmniBox is None or depth > 2:
+            return []
+        try:
+            data = await OmniBox.getDriveFileList(share_url, fid)
+        except Exception:
+            return []
+        items = []
+        if isinstance(data, dict):
+            for key in ("files", "items", "list"):
+                val = data.get(key)
+                if isinstance(val, list):
+                    items = val
+                    break
+        videos = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            fid2 = file_id_of(item)
+            if not fid2:
+                continue
+            if is_folder(item):
+                if depth < 2:
+                    sub = await self.collect_drive_videos(share_url, fid2, depth + 1, max(0, limit - len(videos)))
+                    videos.extend(sub)
+                continue
+            if looks_like_video(item):
+                videos.append({"fid": fid2, "name": file_name_of(item) or f"视频{len(videos) + 1}"})
+            if len(videos) >= limit:
+                break
+        return videos[:limit]
 
     async def home(self, params=None, context=None):
         data = self.listing(channel="1")
@@ -205,27 +309,31 @@ class PanLian:
             if not url:
                 return {"urls": [], "parse": 0, "flag": "盘链"}
             return {"urls": [{"name": "在线播放", "url": url}], "parse": 0, "flag": "盘链", "header": {"User-Agent": UA, "Referer": SITE + "/"}}
-        elif ptype == "pan":
+        if ptype == "pan":
             token = data.get("token", "")
+            title = data.get("title", "网盘")
+            disk = data.get("disk", "")
             if not token:
                 return {"urls": [], "parse": 0, "flag": "盘链"}
             real_url = self.resolve_token(token)
             if not real_url:
                 return {"urls": [], "parse": 0, "flag": "盘链"}
-            title = data.get("title", "网盘")
-            # 用SDK直接播放，不走push
-            if OmniBox:
+            # 优先：SDK 用已配置网盘 CK 直接播放
+            if OmniBox is not None:
                 try:
-                    drive_info = OmniBox.getDriveInfoByShareURL(real_url)
-                    if drive_info:
-                        play_info = OmniBox.getDriveVideoPlayInfo(drive_info)
-                        if play_info and play_info.get("url"):
-                            return {"urls": [{"name": title, "url": play_info["url"]}], "parse": 0, "flag": "盘链", "header": play_info.get("header", {})}
-                except Exception:
-                    pass
-            # SDK失败回退push
+                    videos = await self.collect_drive_videos(real_url)
+                    if videos:
+                        play_info = await OmniBox.getDriveVideoPlayInfo(real_url, videos[0]["fid"])
+                        urls = extract_play_urls(play_info)
+                        if urls:
+                            return {"urls": urls, "parse": 0, "flag": "盘链", "header": play_info.get("header") or play_info.get("headers") or {}}
+                    await log("warn", f"[panlian][play] sdk no video, share={real_url}")
+                except Exception as e:
+                    await log("error", f"[panlian][play] sdk err: {e}")
+            # 回退：分享链接推送
             return {"urls": [{"name": title, "url": "push://" + real_url}], "parse": 0, "flag": "盘链", "header": {"User-Agent": UA, "Referer": SITE + "/"}}
         return {"urls": [], "parse": 0, "flag": "盘链"}
+
 
 _spider = PanLian()
 run({"home": _spider.home, "category": _spider.category, "detail": _spider.detail, "search": _spider.search, "play": _spider.play})
