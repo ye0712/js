@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # @name: YouTube
-# @version: 1.2.0
-# @remark: YouTube 官方 InnerTube API 源（搜索/分类/播放），内置代理
+# @version: 1.3.0
+# @remark: YouTube 官方 InnerTube API 源（搜索/分类/播放），内置代理，支持 Cookie 登录
 # 数据走 YouTube 官方 API，播放用 ANDROID_VR 客户端 + visitorData 取单流 mp4
 # 内置代理 http://172.17.0.1:8080（ATV 容器访问宿主机 mihomo HTTP 代理）
+# 支持 extend 传 {"cookie":"SAPISID=...; PSID=...; ..."} 登录同步观看记录/历史
 
-import requests, json, re, time
+import requests, json, re, time, hashlib
 from base.spider import Spider as BaseSpider
 
 requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
@@ -20,6 +21,9 @@ class Spider(BaseSpider):
         # extend 传 {"proxy":"http://ip:port"} 可覆盖
         self.PROXY = {"http": "http://172.17.0.1:8080", "https": "http://172.17.0.1:8080"}
         self.visitor = ""  # visitorData 缓存
+        # Cookie 登录（同步观看记录/历史）
+        self.cookie = ""
+        self.auth_on = False
         self.channels = [
             {"type_id": "rec", "type_name": "推荐"},
             {"type_id": "4k", "type_name": "臻彩"},
@@ -41,8 +45,12 @@ class Spider(BaseSpider):
         if extend:
             try:
                 cfg = json.loads(extend)
-                if isinstance(cfg, dict) and cfg.get("proxy"):
-                    self.PROXY = {"http": cfg["proxy"], "https": cfg["proxy"]}
+                if isinstance(cfg, dict):
+                    if cfg.get("proxy"):
+                        self.PROXY = {"http": cfg["proxy"], "https": cfg["proxy"]}
+                    if cfg.get("cookie"):
+                        self.cookie = cfg["cookie"]
+                        self.auth_on = True
             except Exception:
                 pass
 
@@ -51,6 +59,29 @@ class Spider(BaseSpider):
 
     def destroy(self):
         self.session.close()
+
+    # ---------- Cookie 登录（SAPISIDHASH 签名） ----------
+    def _sha1(self, msg):
+        return hashlib.sha1(msg.encode()).hexdigest()
+
+    def _sapisid(self):
+        s = self.cookie or ""
+        m = re.search(r"(?:^|;\s*)SAPISID=([^;]+)", s) or \
+            re.search(r"(?:^|;\s*)__Secure-3PAPISID=([^;]+)", s) or \
+            re.search(r"(?:^|;\s*)__Secure-1PAPISID=([^;]+)", s)
+        return m.group(1) if m else ""
+
+    def _auth_headers(self):
+        if not self.auth_on or not self.cookie:
+            return {}
+        h = {"Cookie": self.cookie}
+        sid = self._sapisid()
+        if sid:
+            ts = int(time.time())
+            h["Authorization"] = "SAPISIDHASH " + str(ts) + "_" + self._sha1(str(ts) + " " + sid + " " + self.YT)
+            h["X-Origin"] = self.YT
+            h["X-Goog-AuthUser"] = "0"
+        return h
 
     # ---------- 请求 ----------
     def _req(self, url, method="GET", body=None, headers=None, timeout=15):
@@ -70,10 +101,12 @@ class Spider(BaseSpider):
             "hl": "zh-CN", "gl": "US", "userAgent": self.UA
         }}}
         body.update(payload)
-        r = self._req(self.API + endpoint + "?key=" + self.KEY + "&prettyPrint=false", "POST", body, {
+        headers = {
             "Content-Type": "application/json", "Origin": self.YT, "Referer": self.YT + "/",
             "X-YouTube-Client-Name": "1", "X-YouTube-Client-Version": "2.20260801.00.00"
-        })
+        }
+        headers.update(self._auth_headers())  # 登录态
+        r = self._req(self.API + endpoint + "?key=" + self.KEY + "&prettyPrint=false", "POST", body, headers)
         if not r or r.status_code != 200:
             return None
         try:
