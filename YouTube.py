@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # @name: YouTube
-# @version: 1.1.0
+# @version: 1.2.0
 # @remark: YouTube 官方 InnerTube API 源（搜索/分类/播放），内置代理
-# 数据走 YouTube 官方 API，播放用官方 player 接口解析 HLS 主清单
+# 数据走 YouTube 官方 API，播放用 ANDROID_VR 客户端 + visitorData 取单流 mp4
 # 内置代理 http://172.17.0.1:8080（ATV 容器访问宿主机 mihomo HTTP 代理）
 
 import requests, json, re, time
@@ -15,11 +15,11 @@ class Spider(BaseSpider):
         self.YT = "https://www.youtube.com"
         self.API = self.YT + "/youtubei/v1/"
         self.KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"  # YouTube Web 公开 key
-        self.CVER = "2.20260801.00.00"
         self.UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         # 内置代理：ATV 容器(bridge)访问宿主机 mihomo HTTP 代理
         # extend 传 {"proxy":"http://ip:port"} 可覆盖
         self.PROXY = {"http": "http://172.17.0.1:8080", "https": "http://172.17.0.1:8080"}
+        self.visitor = ""  # visitorData 缓存
         self.channels = [
             {"type_id": "rec", "type_name": "推荐"},
             {"type_id": "4k", "type_name": "臻彩"},
@@ -66,13 +66,13 @@ class Spider(BaseSpider):
 
     def _innertube(self, endpoint, payload):
         body = {"context": {"client": {
-            "clientName": "WEB", "clientVersion": self.CVER,
+            "clientName": "WEB", "clientVersion": "2.20260801.00.00",
             "hl": "zh-CN", "gl": "US", "userAgent": self.UA
         }}}
         body.update(payload)
         r = self._req(self.API + endpoint + "?key=" + self.KEY + "&prettyPrint=false", "POST", body, {
             "Content-Type": "application/json", "Origin": self.YT, "Referer": self.YT + "/",
-            "X-YouTube-Client-Name": "1", "X-YouTube-Client-Version": self.CVER
+            "X-YouTube-Client-Name": "1", "X-YouTube-Client-Version": "2.20260801.00.00"
         })
         if not r or r.status_code != 200:
             return None
@@ -80,6 +80,21 @@ class Spider(BaseSpider):
             return r.json()
         except Exception:
             return None
+
+    # ---------- visitorData（抓 embed 页面） ----------
+    def _get_visitor(self, video_id):
+        if self.visitor:
+            return self.visitor
+        try:
+            r = self._req(self.YT + "/embed/" + video_id, timeout=10)
+            if r and r.status_code == 200:
+                m = re.search(r'"visitorData":"([^"]+)"', r.text)
+                if m:
+                    self.visitor = m.group(1)
+                    return self.visitor
+        except Exception:
+            pass
+        return ""
 
     # ---------- 解析 ----------
     def _text(self, node):
@@ -138,13 +153,16 @@ class Spider(BaseSpider):
                 out.append(v)
         return out
 
-    # ---------- 播放解析（官方 player 接口 → HLS） ----------
+    # ---------- 播放解析（ANDROID_VR + visitorData → 单流 mp4） ----------
     def _resolve(self, video_id):
+        visitor = self._get_visitor(video_id)
         client = {
-            "clientName": "IOS", "clientVersion": "21.02.3",
-            "deviceMake": "Apple", "deviceModel": "iPhone16,2",
-            "osName": "iPhone", "osVersion": "18.3.2.22D82"
+            "clientName": "ANDROID_VR", "clientVersion": "1.65.10",
+            "deviceMake": "Oculus", "deviceModel": "Quest 3",
+            "androidSdkVersion": 32, "osName": "Android", "osVersion": "12L"
         }
+        if visitor:
+            client["visitorData"] = visitor
         body = {
             "videoId": video_id,
             "context": {"client": client},
@@ -153,8 +171,10 @@ class Spider(BaseSpider):
         headers = {
             "Content-Type": "application/json", "User-Agent": self.UA,
             "Origin": self.YT, "Referer": self.YT + "/watch?v=" + video_id,
-            "X-YouTube-Client-Name": "5", "X-YouTube-Client-Version": "21.02.3"
+            "X-YouTube-Client-Name": "28", "X-YouTube-Client-Version": "1.65.10"
         }
+        if visitor:
+            headers["X-Goog-Visitor-Id"] = visitor
         r = self._req(self.API + "player?key=" + self.KEY + "&prettyPrint=false", "POST", body, headers)
         if not r or r.status_code != 200:
             return None
@@ -163,12 +183,14 @@ class Spider(BaseSpider):
         except Exception:
             return None
         sd = j.get("streamingData") or {}
-        hls = sd.get("hlsManifestUrl")
-        if hls:
-            return hls
+        # 优先单流 mp4（带音轨，ATV 直接播）
         for f in sd.get("formats") or []:
             if f.get("url") and "video" in (f.get("mimeType") or ""):
                 return f["url"]
+        # 兜底 HLS
+        hls = sd.get("hlsManifestUrl")
+        if hls:
+            return hls
         return None
 
     # ---------- 接口 ----------
