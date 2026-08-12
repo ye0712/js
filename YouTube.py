@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # @name: YouTube
-# @version: 1.0.0
-# @remark: YouTube 官方 InnerTube API 源（搜索/分类/播放）
+# @version: 1.1.0
+# @remark: YouTube 官方 InnerTube API 源（搜索/分类/播放），内置代理
 # 数据走 YouTube 官方 API，播放用官方 player 接口解析 HLS 主清单
-# 需要代理才能访问 YouTube（ATV 侧配置 HTTP 代理）
+# 内置代理 http://172.17.0.1:8080（ATV 容器访问宿主机 mihomo HTTP 代理）
 
 import requests, json, re, time
 from base.spider import Spider as BaseSpider
@@ -17,8 +17,9 @@ class Spider(BaseSpider):
         self.KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"  # YouTube Web 公开 key
         self.CVER = "2.20260801.00.00"
         self.UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        # 代理：ATV 侧配置，留空走直连。如需内置可填 http://ip:port
-        self.PROXY = None
+        # 内置代理：ATV 容器(bridge)访问宿主机 mihomo HTTP 代理
+        # extend 传 {"proxy":"http://ip:port"} 可覆盖
+        self.PROXY = {"http": "http://172.17.0.1:8080", "https": "http://172.17.0.1:8080"}
         self.channels = [
             {"type_id": "rec", "type_name": "推荐"},
             {"type_id": "4k", "type_name": "臻彩"},
